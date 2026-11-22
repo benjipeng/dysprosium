@@ -1,0 +1,278 @@
+name: Release LiveContainer IPA
+
+run-name: "Release · ${{ github.ref_name }} · #${{ github.run_number }}"
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Create or update a GitHub Release with the built IPA"
+        type: boolean
+        default: true
+      prerelease:
+        description: "Mark the GitHub Release as a pre-release"
+        type: boolean
+        default: false
+      run_tests:
+        description: "Optionally run DysprosiumTests on iOS 27.2 Simulator before packaging"
+        type: boolean
+        default: false
+      release_tag:
+        description: "Optional GitHub Release tag override (defaults to v<MARKETING_VERSION>)"
+        type: string
+        default: ""
+      release_notes:
+        description: "Optional extra notes prepended to the GitHub Release description"
+        type: string
+        default: ""
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  build-and-release:
+    name: Build & Publish IPA (Xcode 27.2)
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Select Xcode 27.2
+        id: xcode
+        run: |
+          set -euo pipefail
+          XCODE_APP="$(ls -d /Applications/Xcode_27.2*.app 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -z "$XCODE_APP" ]; then
+            echo "Error: Xcode 27.2 not found in /Applications" >&2
+            ls -la /Applications
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          XCODE_VER="$(xcodebuild -version | awk '/^Xcode / {print $2}')"
+          XCODE_BUILD="$(xcodebuild -version | awk '/^Build version / {print $3}')"
+          echo "Using Xcode $XCODE_VER ($XCODE_BUILD)"
+          {
+            echo "version=$XCODE_VER"
+            echo "build=$XCODE_BUILD"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Read Version.xcconfig
+        id: meta
+        run: |
+          set -euo pipefail
+          read_var() {
+            awk -F'=' -v k="$1" '
+              $0 ~ "^[[:space:]]*" k "[[:space:]]*=" {
+                sub(/^[^=]*=/, "", $0)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+                print $0
+                exit
+              }
+            ' "$2"
+          }
+          version="$(read_var DYSPROSIUM_MARKETING_VERSION Version.xcconfig)"
+          build_num="$(read_var DYSPROSIUM_CURRENT_PROJECT_VERSION Version.xcconfig)"
+          {
+            echo "version=$version"
+            echo "build_number=$build_num"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Cache Release DerivedData & SDK Modules
+        uses: actions/cache@v5
+        with:
+          path: |
+            DerivedData/ModuleCache.noindex
+            DerivedData/Build/Intermediates.noindex
+          key: dysprosium-release-${{ steps.xcode.outputs.build }}-${{ hashFiles('Dysprosium/**/*.swift', 'Dysprosium.xcodeproj/**', 'Version.xcconfig') }}
+          restore-keys: |
+            dysprosium-release-${{ steps.xcode.outputs.build }}-
+            dysprosium-ci-${{ steps.xcode.outputs.build }}-
+
+      - name: Optional DysprosiumTests Gate (iOS 27.2)
+        if: github.event_name == 'workflow_dispatch' && inputs.run_tests == true
+        run: |
+          set -euo pipefail
+          unset SDKROOT
+          SIM_UDID="$(python3 - <<'PY'
+          import json, subprocess, sys
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          preferred, fallback = None, None
+          for runtime, devices in data.get("devices", {}).items():
+              if "iOS-27-2" not in runtime:
+                  continue
+              for d in devices:
+                  if not d.get("isAvailable", False):
+                      continue
+                  name = d.get("name", "")
+                  if name == "iPhone 17" and preferred is None:
+                      preferred = d["udid"]
+                  elif "iPhone" in name and fallback is None:
+                      fallback = d["udid"]
+          chosen = preferred or fallback
+          if not chosen:
+              sys.exit("No available iOS 27.2 iPhone simulator found")
+          print(chosen)
+          PY
+          )"
+          xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$SIM_UDID" -b
+          xcodebuild test \
+            -project Dysprosium.xcodeproj \
+            -scheme Dysprosium \
+            -destination "platform=iOS Simulator,id=${SIM_UDID}" \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build & Verify Release LiveContainer IPA
+        id: build
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="$PWD/DerivedData" ./scripts/build_livecontainer_ipa.sh
+
+          VERSION="${{ steps.meta.outputs.version }}"
+          BUILD_NUM="${{ steps.meta.outputs.build_number }}"
+          IPA_NAME="Dysprosium-v${VERSION}_b${BUILD_NUM}.ipa"
+          IPA_PATH="build/${IPA_NAME}"
+          SHA_PATH="${IPA_PATH}.sha256"
+
+          if [ ! -f "$IPA_PATH" ]; then
+            echo "Error: Expected IPA not found at $IPA_PATH" >&2
+            ls -la build/
+            exit 1
+          fi
+
+          (
+            cd build
+            shasum -a 256 "$IPA_NAME" > "${IPA_NAME}.sha256"
+          )
+
+          IPA_SHA256="$(awk '{print $1}' "$SHA_PATH")"
+          IPA_SIZE="$(du -h "$IPA_PATH" | awk '{print $1}')"
+          SDK_VERSION="$(vtool -show-build build/Dysprosium.xcarchive/Products/Applications/Dysprosium.app/Dysprosium | awk '/^[[:space:]]*sdk / {print $2; exit}')"
+
+          {
+            echo "ipa_name=$IPA_NAME"
+            echo "ipa_path=$IPA_PATH"
+            echo "sha256_path=$SHA_PATH"
+            echo "ipa_sha256=$IPA_SHA256"
+            echo "ipa_size=$IPA_SIZE"
+            echo "sdk_version=$SDK_VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload Release IPA Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: Dysprosium-v${{ steps.meta.outputs.version }}_b${{ steps.meta.outputs.build_number }}-arm64
+          path: |
+            build/Dysprosium-v*.ipa
+            build/Dysprosium-v*.ipa.sha256
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' || inputs.publish_release == true
+        env:
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_RELEASE_NOTES: ${{ inputs.release_notes }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_NUM: ${{ steps.meta.outputs.build_number }}
+          IPA_PATH: ${{ steps.build.outputs.ipa_path }}
+          SHA_PATH: ${{ steps.build.outputs.sha256_path }}
+          IPA_NAME: ${{ steps.build.outputs.ipa_name }}
+          IPA_SHA256: ${{ steps.build.outputs.ipa_sha256 }}
+          IPA_SIZE: ${{ steps.build.outputs.ipa_size }}
+          SDK_VERSION: ${{ steps.build.outputs.sdk_version }}
+          XCODE_VERSION: ${{ steps.xcode.outputs.version }}
+          XCODE_BUILD: ${{ steps.xcode.outputs.build }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            tag="${GITHUB_REF_NAME}"
+          elif [ -n "$INPUT_RELEASE_TAG" ]; then
+            tag="$INPUT_RELEASE_TAG"
+          else
+            tag="v${VERSION}"
+          fi
+
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          notes_file="$RUNNER_TEMP/dysprosium-release-notes.md"
+          {
+            if [ -n "$INPUT_RELEASE_NOTES" ]; then
+              printf '%s\n\n' "$INPUT_RELEASE_NOTES"
+            fi
+            cat <<EOF
+          ## Dysprosium v${VERSION} (build ${BUILD_NUM})
+
+          Unsigned \`arm64\` Release IPA built reproducibly on GitHub Actions (\`xcode-27\`) against **iOS ${SDK_VERSION} SDK** for [LiveContainer](https://github.com/LiveContainer/LiveContainer).
+
+          | Field | Value |
+          | --- | --- |
+          | **Artifact** | \`${IPA_NAME}\` (${IPA_SIZE}) |
+          | **SHA-256** | \`${IPA_SHA256}\` |
+          | **iOS SDK** | \`iphoneos${SDK_VERSION}\` (\`arm64\`) |
+          | **Toolchain** | Xcode \`${XCODE_VERSION}\` (\`${XCODE_BUILD}\`) |
+          | **Source Commit** | \`${GITHUB_SHA:0:7}\` |
+          | **Build Run** | [#${GITHUB_RUN_NUMBER}](${RUN_URL}) |
+
+          ### Installation
+          1. Download \`${IPA_NAME}\` below.
+          2. Open **LiveContainer**, tap **+**, and import the \`.ipa\`.
+          EOF
+          } > "$notes_file"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" \
+              --title "Dysprosium v${VERSION} (build ${BUILD_NUM})" \
+              --notes-file "$notes_file"
+            gh release upload "$tag" "$IPA_PATH" "$SHA_PATH" --clobber
+          else
+            extra_flags=()
+            if [ "$INPUT_PRERELEASE" = "true" ]; then
+              extra_flags+=(--prerelease)
+            fi
+            gh release create "$tag" \
+              "$IPA_PATH" "$SHA_PATH" \
+              --target "$GITHUB_SHA" \
+              --title "Dysprosium v${VERSION} (build ${BUILD_NUM})" \
+              --notes-file "$notes_file" \
+              --generate-notes \
+              ${extra_flags[@]+"${extra_flags[@]}"}
+          fi
+          echo "Published GitHub Release: $tag"
+
+      - name: Write Job Summary
+        if: always() && steps.build.outcome == 'success'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_NUM: ${{ steps.meta.outputs.build_number }}
+          IPA_NAME: ${{ steps.build.outputs.ipa_name }}
+          IPA_SIZE: ${{ steps.build.outputs.ipa_size }}
+          IPA_SHA256: ${{ steps.build.outputs.ipa_sha256 }}
+          SDK_VERSION: ${{ steps.build.outputs.sdk_version }}
+          XCODE_VERSION: ${{ steps.xcode.outputs.version }}
+          XCODE_BUILD: ${{ steps.xcode.outputs.build }}
+          PUBLISHED: ${{ github.event_name == 'push' || inputs.publish_release == true }}
+        run: |
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ## Dysprosium v${VERSION} (build ${BUILD_NUM})
+
+          | Metric | Value |
+          | --- | --- |
+          | **IPA** | \`${IPA_NAME}\` (${IPA_SIZE}) |
+          | **SHA-256** | \`${IPA_SHA256}\` |
+          | **SDK** | \`iphoneos${SDK_VERSION}\` (\`arm64\`) |
+          | **Xcode** | \`${XCODE_VERSION}\` (\`${XCODE_BUILD}\`) |
+          | **Release published** | \`${PUBLISHED}\` |
+          EOF

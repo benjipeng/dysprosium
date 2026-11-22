@@ -1,0 +1,30 @@
+# Local agent notes & reference repositories (untracked)
+.agents/
+.references/
+
+# Locally bootstrapped heavy binary frameworks
+Frameworks/
+
+# Xcode & build artifacts
+build/
+DerivedData/
+*.ipa
+*.xcarchive
+*.xcuserdata
+xcuserdata/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# macOS metadata
+.DS_Store

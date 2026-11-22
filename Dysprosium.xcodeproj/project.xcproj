@@ -1,0 +1,133 @@
+{
+  "default-configuration": "Release",
+  "configurations": [
+    { "name": "Debug", "file": "Version.xcconfig" },
+    { "name": "Release", "file": "Version.xcconfig" }
+  ],
+  "localizations": {
+    "development": "en",
+    "supported": [
+      "Base"
+    ]
+  },
+  "files": [
+    { "path": "Version.xcconfig" },
+    {
+      "kind": "folder",
+      "path": "Dysprosium",
+      "target-membership": [
+        "Dysprosium"
+      ],
+      "membership-exceptions": [
+        {
+          "target": "Dysprosium",
+          "exclusions": [
+            "App/Info.plist"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "folder",
+      "path": "DysprosiumTests",
+      "target-membership": [
+        "DysprosiumTests"
+      ]
+    },
+    {
+      "kind": "group",
+      "name": "Products",
+      "children": [
+        { "path": "<PRODUCTS>/Dysprosium.app", "id": "66DY00022F90000100660001", "type": "wrapper.application", "index": false },
+        { "path": "<PRODUCTS>/DysprosiumTests.xctest", "id": "66DY00042F90000100660001", "type": "wrapper.cfbundle", "index": false }
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "name": "Dysprosium",
+      "id": "66DY00012F90000100660001",
+      "product": "Products/Dysprosium.app",
+      "product-type": "application",
+      "build-phases": [
+        "compile-sources",
+        "frameworks",
+        "resources"
+      ],
+      "build-settings": {
+        "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+        "CODE_SIGN_STYLE": "Automatic",
+        "CURRENT_PROJECT_VERSION": "$(DYSPROSIUM_CURRENT_PROJECT_VERSION)",
+        "ENABLE_PREVIEWS": "YES",
+        "GENERATE_INFOPLIST_FILE": "NO",
+        "INFOPLIST_FILE": "Dysprosium/App/Info.plist",
+        "IPHONEOS_DEPLOYMENT_TARGET": "$(IPHONEOS_DEPLOYMENT_TARGET)",
+        "LD_RUNPATH_SEARCH_PATHS": [
+          "$(inherited)",
+          "@executable_path/Frameworks"
+        ],
+        "MARKETING_VERSION": "$(DYSPROSIUM_MARKETING_VERSION)",
+        "OTHER_LDFLAGS": [
+          "$(inherited)",
+          "-lsqlite3"
+        ],
+        "PRODUCT_BUNDLE_IDENTIFIER": "$(DYSPROSIUM_BUNDLE_IDENTIFIER)",
+        "PRODUCT_NAME": "$(TARGET_NAME)",
+        "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",
+        "SUPPORTS_MACCATALYST": "NO",
+        "SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD": "NO",
+        "SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD": "NO",
+        "SWIFT_VERSION": "$(SWIFT_VERSION)",
+        "TARGETED_DEVICE_FAMILY": "1,2"
+      }
+    },
+    {
+      "name": "DysprosiumTests",
+      "id": "66DY00032F90000100660001",
+      "product": "Products/DysprosiumTests.xctest",
+      "product-type": "bundle.unit-test",
+      "test-host-target": "Dysprosium",
+      "dependencies": [
+        "Dysprosium"
+      ],
+      "build-phases": [
+        "compile-sources",
+        "frameworks",
+        "resources"
+      ],
+      "build-settings": {
+        "BUNDLE_LOADER": "$(TEST_HOST)",
+        "CODE_SIGN_STYLE": "Automatic",
+        "CURRENT_PROJECT_VERSION": "5",
+        "GENERATE_INFOPLIST_FILE": "YES",
+        "IPHONEOS_DEPLOYMENT_TARGET": "$(IPHONEOS_DEPLOYMENT_TARGET)",
+        "MARKETING_VERSION": "0.1.4",
+        "PRODUCT_BUNDLE_IDENTIFIER": "com.appautomaton.dysprosium.tests",
+        "PRODUCT_NAME": "$(TARGET_NAME)",
+        "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",
+        "SWIFT_VERSION": "$(SWIFT_VERSION)",
+        "TARGETED_DEVICE_FAMILY": "1,2",
+        "TEST_HOST": "$(BUILT_PRODUCTS_DIR)/Dysprosium.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Dysprosium"
+      }
+    }
+  ],
+  "build-settings": {
+    "ALWAYS_SEARCH_USER_PATHS": "NO",
+    "CLANG_ENABLE_MODULES": "YES",
+    "CLANG_ENABLE_OBJC_ARC": "YES",
+    "COPY_PHASE_STRIP": "NO",
+    "DEBUG_INFORMATION_FORMAT[config=Debug]": "dwarf",
+    "DEBUG_INFORMATION_FORMAT[config=Release]": "dwarf-with-dsym",
+    "ENABLE_TESTABILITY[config=Debug]": "YES",
+    "GCC_C_LANGUAGE_STANDARD": "gnu17",
+    "GCC_OPTIMIZATION_LEVEL[config=Debug]": "0",
+    "IPHONEOS_DEPLOYMENT_TARGET": "26.0",
+    "ONLY_ACTIVE_ARCH[config=Debug]": "YES",
+    "SDKROOT": "iphoneos",
+    "SWIFT_ACTIVE_COMPILATION_CONDITIONS[config=Debug]": "DEBUG $(inherited)",
+    "SWIFT_COMPILATION_MODE[config=Release]": "wholemodule",
+    "SWIFT_OPTIMIZATION_LEVEL[config=Debug]": "-Onone",
+    "VALIDATE_PRODUCT[config=Release]": "YES"
+  },
+  "last-upgrade": "27.2"
+}
