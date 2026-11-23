@@ -125,25 +125,25 @@ final class FingerprintAuditTests: XCTestCase {
         let viewport = CGSize(width: 466, height: 678)
 
         // 1. Raw native unshielded baseline
-        let rawNative = await engine.runAudit(
+        let nativeSnap = try await runStableAudit(
+            engine: engine,
             mode: .shieldPaused,
             viewportSize: viewport,
             userAgentProfile: .iosSafari
         )
-        let nativeSnap = try XCTUnwrap(rawNative)
         XCTAssertEqual(nativeSnap.lieChecks.count, 8, "Audit engine must run all 8 hard-mode integrity checks")
         XCTAssertEqual(nativeSnap.lieCount, 0, "Native WebKit must pass 8/8 checks: \(nativeSnap.lieChecks)")
 
         // 2. Shielded Standard run with deterministic Seed A
         let seedA = "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff"
-        let rawShieldA1 = await engine.runAudit(
+        let shieldA1 = try await runStableAudit(
+            engine: engine,
             mode: .standard,
             viewportSize: viewport,
             userAgentProfile: .iosSafari,
             customSeed: seedA,
             maskFoldableScreen: false
         )
-        let shieldA1 = try XCTUnwrap(rawShieldA1)
         XCTAssertEqual(shieldA1.lieChecks.count, 8)
         XCTAssertEqual(shieldA1.lieCount, 0, "0-Frame Fingerprint Shield must pass all 8/8 CreepJS/FP-Pro checks: \(shieldA1.lieChecks)")
         XCTAssertNotEqual(shieldA1.visitorId, nativeSnap.visitorId, "Shielded Visitor ID must diverge from raw native WebKit")
@@ -153,15 +153,20 @@ final class FingerprintAuditTests: XCTestCase {
         XCTAssertTrue(diffVsNative.contains("audio"), "Seeded farbling must mutate WebAudio signal: \(diffVsNative)")
 
         // 3. Re-running with the exact same Seed A must be 100% deterministic (never random noise)
-        let rawShieldA2 = await engine.runAudit(
+        let shieldA2 = try await runStableAudit(
+            engine: engine,
             mode: .standard,
             viewportSize: viewport,
             userAgentProfile: .iosSafari,
             customSeed: seedA,
             maskFoldableScreen: false
         )
-        let shieldA2 = try XCTUnwrap(rawShieldA2)
-        XCTAssertEqual(shieldA2.visitorId, shieldA1.visitorId, "Same session seed must produce identical Visitor ID")
+        let seedDiff = formatSignalDiff(shieldA2, comparedTo: shieldA1)
+        XCTAssertEqual(
+            shieldA2.visitorId,
+            shieldA1.visitorId,
+            "Same session seed must produce identical Visitor ID (changed signals: \(seedDiff))"
+        )
         XCTAssertEqual(shieldA2.lieCount, 0)
 
         // 4. Ephemeral Private session (fresh cryptographic seed) must rotate Visitor ID cleanly
@@ -260,5 +265,49 @@ final class FingerprintAuditTests: XCTestCase {
         }
         XCTFail("Timed out waiting for fingerprint.com/demo/ response")
         return [:]
+    }
+
+    /// Runs an offline audit and retries once if FingerprintJS v4's hardcoded 500 ms
+    /// `OfflineAudioContext` probe hit a transient headless-VM timeout (`-3`).
+    @MainActor
+    private func runStableAudit(
+        engine: FingerprintAuditEngine,
+        mode: FingerprintAuditMode,
+        viewportSize: CGSize,
+        userAgentProfile: BrowserUserAgentProfile,
+        customSeed: String? = nil,
+        maskFoldableScreen: Bool? = nil
+    ) async throws -> FingerprintAuditSnapshot {
+        var lastSnapshot: FingerprintAuditSnapshot?
+        for attempt in 0..<3 {
+            let rawSnap = await engine.runAudit(
+                mode: mode,
+                viewportSize: viewportSize,
+                userAgentProfile: userAgentProfile,
+                customSeed: customSeed,
+                maskFoldableScreen: maskFoldableScreen
+            )
+            let snap = try XCTUnwrap(rawSnap)
+            lastSnapshot = snap
+            let audioTimedOut = snap.signals.first(where: { $0.id == "audio" })?.summary == "-3"
+            if !audioTimedOut || attempt == 2 {
+                return snap
+            }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        return try XCTUnwrap(lastSnapshot)
+    }
+
+    private func formatSignalDiff(
+        _ current: FingerprintAuditSnapshot,
+        comparedTo baseline: FingerprintAuditSnapshot
+    ) -> String {
+        let changed = current.changedSignalIDs(comparedTo: baseline).sorted()
+        guard !changed.isEmpty else { return "none" }
+        let baseByID = Dictionary(uniqueKeysWithValues: baseline.signals.map { ($0.id, $0.summary) })
+        let currByID = Dictionary(uniqueKeysWithValues: current.signals.map { ($0.id, $0.summary) })
+        return changed.map { id in
+            "\(id): '\(baseByID[id] ?? "nil")' -> '\(currByID[id] ?? "nil")'"
+        }.joined(separator: "; ")
     }
 }

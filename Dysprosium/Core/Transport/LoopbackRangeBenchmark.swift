@@ -144,13 +144,15 @@ public actor LoopbackRangeServer {
         while cursor <= rangeEnd {
             let chunkEnd = min(rangeEnd + 1, cursor + step)
             let sub = payload.subdata(in: cursor..<chunkEnd)
-            let isLast = (chunkEnd > rangeEnd)
-            guard await sendChunk(sub, on: connection, isFinal: isLast) else { return }
+            guard await sendChunk(sub, on: connection) else { return }
             cursor = chunkEnd
-            if !isLast, delayNs > 0, contentLength > 1024 {
+            if cursor <= rangeEnd, delayNs > 0, contentLength > 1024 {
                 try? await Task.sleep(nanoseconds: delayNs)
             }
         }
+        // Signal graceful TCP FIN before `defer { connection.cancel() }` tears down the socket.
+        connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .idempotent)
+        try? await Task.sleep(for: .milliseconds(25))
     }
 
     private static func receiveHeaders(on connection: NWConnection) async -> Data? {
@@ -172,16 +174,11 @@ public actor LoopbackRangeServer {
         return accumulated
     }
 
-    private static func sendChunk(_ data: Data, on connection: NWConnection, isFinal: Bool = false) async -> Bool {
+    private static func sendChunk(_ data: Data, on connection: NWConnection) async -> Bool {
         await withCheckedContinuation { cont in
-            connection.send(
-                content: data,
-                contentContext: isFinal ? .finalMessage : .defaultMessage,
-                isComplete: isFinal,
-                completion: .contentProcessed { err in
-                    cont.resume(returning: err == nil)
-                }
-            )
+            connection.send(content: data, completion: .contentProcessed { err in
+                cont.resume(returning: err == nil)
+            })
         }
     }
 

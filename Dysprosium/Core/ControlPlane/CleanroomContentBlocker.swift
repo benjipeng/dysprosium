@@ -951,6 +951,11 @@ public final class CleanroomContentBlocker {
     private func scheduleAutoRefreshIfStale() {
         guard !didBootstrap else { return }
         didBootstrap = true
+        // Keep unit tests strictly air-gapped and deterministic: never trigger background
+        // internet filter downloads or mid-suite WKContentRuleList mutations under XCTest.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            return
+        }
 
         let now = Date()
         let checks: [(Bool, TimeInterval, URL)] = subscriptions.filter(\.isEnabled).map { sub in
