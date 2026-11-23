@@ -4,6 +4,7 @@ import CryptoKit
 import Foundation
 import JavaScriptCore
 import Network
+import UIKit
 import WebKit
 import XCTest
 @testable import Dysprosium
@@ -1804,6 +1805,12 @@ final class RangeEngineTests: XCTestCase {
             WKUserScript(source: BrowserInjectedScripts.allFramesStreamInterceptor, injectionTime: .atDocumentStart, forMainFrameOnly: false)
         )
         let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 640), configuration: cfg)
+        let detachWebView = attachForHeadlessExecution(wv)
+        defer {
+            cfg.userContentController.removeScriptMessageHandler(forName: BrowserInjectedScripts.snifferMessageHandlerName)
+            wv.stopLoading()
+            detachWebView()
+        }
         let html = """
         <!doctype html><html><body>
           <video id="v"></video>
@@ -1814,9 +1821,9 @@ final class RangeEngineTests: XCTestCase {
         </body></html>
         """
         wv.loadHTMLString(html, baseURL: URL(string: "https://embed.example.test/e/demo123")!)
-        for _ in 0..<25 {
+        for _ in 0..<100 {
             if !box.payloads.isEmpty { break }
-            try await Task.sleep(for: .milliseconds(80))
+            try await Task.sleep(for: .milliseconds(100))
         }
         let first = try XCTUnwrap(box.payloads.first, "Extensionless <video src> must be reported to Swift sniffer")
         XCTAssertEqual(first["url"] as? String, "https://edge-04.cdn.example.test/d/8f4c1a2b~token?expiry=1795275000")
@@ -3300,5 +3307,23 @@ final class RangeEngineTests: XCTestCase {
         XCTAssertEqual(status, CCCryptorStatus(kCCSuccess))
         out.count = moved
         return out
+    }
+
+    @MainActor
+    private func attachForHeadlessExecution(_ webView: WKWebView) -> () -> Void {
+        webView.isUserInteractionEnabled = false
+        webView.alpha = 0.01
+        let hostWindow = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
+            ?? UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first
+        hostWindow?.insertSubview(webView, at: 0)
+        return {
+            webView.removeFromSuperview()
+        }
     }
 }

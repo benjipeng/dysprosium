@@ -81,7 +81,10 @@ public final class TransferScheduler {
             self.pumpQueue()
             let protectedIDs = self.resumableTransferIDs
             Task.detached(priority: .utility) {
-                _ = LiveContainerEnvironment.reclaimOrphanedTemporaryFiles(activeTransferIDs: protectedIDs)
+                _ = LiveContainerEnvironment.reclaimOrphanedTemporaryFiles(
+                    activeTransferIDs: protectedIDs,
+                    minimumStagingOrphanAge: 60
+                )
             }
         }
     }
@@ -150,7 +153,10 @@ public final class TransferScheduler {
         Task.detached(priority: .utility) {
             await storeRef?.scrubStoredAuthHeaders()
             await storeRef?.reclaimStorage()
-            _ = LiveContainerEnvironment.reclaimOrphanedTemporaryFiles(activeTransferIDs: protectedIDs)
+            _ = LiveContainerEnvironment.reclaimOrphanedTemporaryFiles(
+                activeTransferIDs: protectedIDs,
+                minimumStagingOrphanAge: 60
+            )
         }
     }
 

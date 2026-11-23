@@ -211,15 +211,23 @@ public enum LiveContainerEnvironment {
 
     /// Removes orphaned `Staging/<uuid>` directories not belonging to `activeTransferIDs` and
     /// stale Dysprosium probe/remux scratch folders from the temporary directory. Returns freed bytes.
+    /// Pass a positive `minimumStagingOrphanAge` for background sweeps so concurrently enqueued
+    /// transfers created after `activeTransferIDs` was snapshotted can never be unlinked mid-flight.
     @discardableResult
-    public static func reclaimOrphanedTemporaryFiles(activeTransferIDs: Set<UUID>) -> UInt64 {
+    public static func reclaimOrphanedTemporaryFiles(
+        activeTransferIDs: Set<UUID>,
+        minimumStagingOrphanAge: TimeInterval = 0
+    ) -> UInt64 {
         let fm = FileManager.default
         var freedBytes: UInt64 = 0
 
         let stagingRoot = stagingDirectory
+        let stagingCutoff = minimumStagingOrphanAge > 0
+            ? Date().addingTimeInterval(-minimumStagingOrphanAge)
+            : nil
         if let stagingEntries = try? fm.contentsOfDirectory(
             at: stagingRoot,
-            includingPropertiesForKeys: nil,
+            includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey],
             options: []
         ) {
             for entry in stagingEntries {
@@ -227,6 +235,16 @@ public enum LiveContainerEnvironment {
                 guard !name.hasPrefix(".") else { continue }
                 if let uuid = UUID(uuidString: name), activeTransferIDs.contains(uuid) {
                     continue
+                }
+                if let stagingCutoff {
+                    let values = try? entry.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey])
+                    let stamp = max(
+                        values?.contentModificationDate ?? .distantPast,
+                        values?.creationDate ?? .distantPast
+                    )
+                    if stamp >= stagingCutoff {
+                        continue
+                    }
                 }
                 let size = directorySizeBytes(at: entry)
                 if (try? fm.removeItem(at: entry)) != nil {
