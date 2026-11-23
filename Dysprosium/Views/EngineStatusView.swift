@@ -8,13 +8,11 @@ struct EngineStatusView: View {
     @Bindable var browserStore: CleanroomBrowserStore
     @State private var probe: RuntimeProbeSummary?
     @State private var freeDiskSpaceBytes: Int64?
-    @State private var backupExcluded: Bool = true
     @State private var downloadedFileCount: Int = 0
     @State private var browserFootprint: BrowserStorageFootprint?
     @State private var isShowingFilterSheet: Bool = false
     @State private var isShowingClearStorageSheet: Bool = false
-    @State private var isShowingSaveFolderPicker: Bool = false
-    @State private var resetMoveOffer: (sourceDir: URL, count: Int)?
+    @State private var saveFolderFlow = SaveFolderFlowState()
     private var contentBlocker = CleanroomContentBlocker.shared
     private var saveFolderManager = CustomSaveFolderManager.shared
     @Bindable private var fingerprintShield = FingerprintShieldEngine.shared
@@ -139,88 +137,13 @@ struct EngineStatusView: View {
             }
             .font(.subheadline)
 
-            Section("Storage & Sandbox") {
-                LabeledContent("Persistence Scope", value: LiveContainerEnvironment.storageTopologyDescription)
-                    .font(.subheadline)
-                    .foregroundStyle(LiveContainerEnvironment.hostSharedAppGroupURL != nil ? tokens.statusSuccess : .primary)
-
-                Menu {
-                    switch saveFolderManager.status {
-                    case .defaultInternal:
-                        Button {
-                            isShowingSaveFolderPicker = true
-                        } label: {
-                            Label("Choose Custom Save Folder…", systemImage: "folder.badge.plus")
-                        }
-                    case .customActive:
-                        Button {
-                            isShowingSaveFolderPicker = true
-                        } label: {
-                            Label("Change Save Folder…", systemImage: "folder.badge.gearshape")
-                        }
-                        Button {
-                            SaveFolderFilesLauncher.openActiveDownloadsFolder()
-                        } label: {
-                            Label("Show in iOS Files", systemImage: "folder")
-                        }
-                        Divider()
-                        Button(role: .destructive) {
-                            let offer = saveFolderManager.resetToDefaultFolder()
-                            if let src = offer.offerMoveFrom, offer.movableFileCount > 0 {
-                                resetMoveOffer = (src, offer.movableFileCount)
-                            }
-                            Task { @MainActor in await refreshStorageDiagnostics() }
-                        } label: {
-                            Label("Reset to Default Storage", systemImage: "arrow.uturn.backward")
-                        }
-                    case .needsHostGrant(let folderName, _, _):
-                        Button {
-                            isShowingSaveFolderPicker = true
-                        } label: {
-                            Label("Grant Access to \"\(folderName)\"…", systemImage: "folder.badge.person.crop")
-                        }
-                        Divider()
-                        Button(role: .destructive) {
-                            _ = saveFolderManager.resetToDefaultFolder()
-                            Task { @MainActor in await refreshStorageDiagnostics() }
-                        } label: {
-                            Label("Reset to Default Storage", systemImage: "arrow.uturn.backward")
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 10) {
-                        Text("Save Location")
-                            .foregroundStyle(.primary)
-                        Spacer(minLength: 8)
-                        Group {
-                            switch saveFolderManager.status {
-                            case .defaultInternal:
-                                Text(LiveContainerEnvironment.displayDownloadsPath)
-                                    .foregroundStyle(.secondary)
-                            case .customActive(_, _, let breadcrumb):
-                                Text(breadcrumb)
-                                    .foregroundStyle(tokens.accent)
-                            case .needsHostGrant(let folderName, _, _):
-                                Label("Link \"\(folderName)\"", systemImage: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(tokens.statusWarning)
-                            }
-                        }
-                        .font(.subheadline)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .contentShape(Rectangle())
+            Section("Storage") {
+                SaveLocationRow(
+                    flow: $saveFolderFlow,
+                    accessibilityID: "engine-save-location-menu"
+                ) {
+                    Task { @MainActor in await refreshStorageDiagnostics() }
                 }
-                .accessibilityIdentifier("engine-save-location-menu")
-
-                LabeledContent(
-                    "iCloud Backup",
-                    value: saveFolderManager.status.isCustomActive ? "Managed by Folder" : (backupExcluded ? "Excluded" : "Included")
-                )
-                .foregroundStyle(saveFolderManager.status.isCustomActive ? .secondary : (backupExcluded ? tokens.statusSuccess : .secondary))
 
                 LabeledContent(
                     "Available Space",
@@ -296,7 +219,7 @@ struct EngineStatusView: View {
         ) {
             ClearBrowsingDataSheet(browserStore: browserStore)
         }
-        .saveFolderPickerFlow(isPresented: $isShowingSaveFolderPicker) {
+        .saveFolderPickerFlow($saveFolderFlow) {
             Task { @MainActor in
                 await refreshStorageDiagnostics()
             }
@@ -306,38 +229,12 @@ struct EngineStatusView: View {
                 await refreshStorageDiagnostics()
             }
         }
-        .confirmationDialog(
-            "Move \(resetMoveOffer?.count ?? 0) Downloads Back to Default?",
-            isPresented: Binding(
-                get: { resetMoveOffer != nil },
-                set: { if !$0 { resetMoveOffer = nil; saveFolderManager.dismissPendingMoveOffer() } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let offer = resetMoveOffer {
-                Button("Move \(offer.count) \(offer.count == 1 ? "File" : "Files")") {
-                    let src = offer.sourceDir
-                    resetMoveOffer = nil
-                    Task { @MainActor in
-                        _ = await saveFolderManager.moveExistingFiles(from: src)
-                        await refreshStorageDiagnostics()
-                    }
-                }
-                Button("Leave in Previous Folder", role: .cancel) {
-                    resetMoveOffer = nil
-                    saveFolderManager.dismissPendingMoveOffer()
-                }
-            }
-        } message: {
-            Text("Files left in the previous folder remain safe in iOS Files.")
-        }
     }
 
     @MainActor
     private func refreshStorageDiagnostics() async {
-        async let diskSnapshot: (excluded: Bool, freeBytes: Int64?, fileCount: Int) = Task.detached(priority: .utility) {
+        async let diskSnapshot: (freeBytes: Int64?, fileCount: Int) = Task.detached(priority: .utility) {
             (
-                LiveContainerEnvironment.isBackupExclusionActive,
                 LiveContainerEnvironment.availableDiskSpaceBytes,
                 LiveContainerEnvironment.scanDownloadedFiles().count
             )
@@ -346,7 +243,6 @@ struct EngineStatusView: View {
 
         let (snapshot, footprint) = await (diskSnapshot, measuredFootprint)
         guard !Task.isCancelled else { return }
-        backupExcluded = snapshot.excluded
         freeDiskSpaceBytes = snapshot.freeBytes
         downloadedFileCount = snapshot.fileCount
         browserFootprint = footprint

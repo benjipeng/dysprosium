@@ -1,4 +1,6 @@
+import Darwin
 import Foundation
+import ObjectiveC.runtime
 import Observation
 import SwiftUI
 import UIKit
@@ -180,12 +182,7 @@ public final class CustomSaveFolderManager {
         resolveTask = Task { @MainActor [weak self] in
             let resolved = await Task.detached(priority: .userInitiated) { () -> (url: URL, refreshedBookmark: Data?)? in
                 var isStale = false
-                guard let url = try? URL(
-                    resolvingBookmarkData: bookmarkData,
-                    options: [.withoutUI, .withoutImplicitStartAccessing],
-                    relativeTo: nil,
-                    bookmarkDataIsStale: &isStale
-                ) else {
+                guard let url = Self.resolvePersistentBookmark(bookmarkData, isStale: &isStale) else {
                     return nil
                 }
                 let granted = url.startAccessingSecurityScopedResource()
@@ -196,11 +193,7 @@ public final class CustomSaveFolderManager {
                 }
                 let refreshed: Data?
                 if isStale {
-                    refreshed = try? url.bookmarkData(
-                        options: .minimalBookmark,
-                        includingResourceValuesForKeys: nil,
-                        relativeTo: nil
-                    )
+                    refreshed = Self.createPersistentBookmark(for: url)
                 } else {
                     refreshed = nil
                 }
@@ -238,7 +231,9 @@ public final class CustomSaveFolderManager {
                 updatedRecord.bookmarksByHost[hostID] = refreshedBookmark
                 didMutate = true
             }
-            if updatedRecord.canonicalPathHint != canonicalPath || updatedRecord.folderName != folderName {
+            if updatedRecord.canonicalPathHint != canonicalPath
+                || updatedRecord.folderName != folderName
+                || updatedRecord.breadcrumb != breadcrumb {
                 updatedRecord.canonicalPathHint = canonicalPath
                 updatedRecord.folderName = folderName
                 updatedRecord.breadcrumb = breadcrumb
@@ -308,11 +303,7 @@ public final class CustomSaveFolderManager {
             )
         }
 
-        guard let bookmarkData = try? pickedURL.bookmarkData(
-            options: .minimalBookmark,
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        ) else {
+        guard let bookmarkData = Self.createPersistentBookmark(for: pickedURL) else {
             if granted { pickedURL.stopAccessingSecurityScopedResource() }
             let msg = "iOS could not create a persistent bookmark for \"\(folderName)\"."
             lastErrorMessage = msg
@@ -501,13 +492,22 @@ public final class CustomSaveFolderManager {
     }
 
     public nonisolated static func cleanFolderName(for url: URL) -> String {
-        let name = url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? "Custom Folder" : name
+        let raw = url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw == "File Provider Storage" {
+            return "On My iPhone"
+        }
+        if raw == "com~apple~CloudDocs" {
+            return "iCloud Drive"
+        }
+        return raw.isEmpty ? "Custom Folder" : raw
     }
 
     public nonisolated static func displayBreadcrumb(for url: URL) -> String {
         let name = cleanFolderName(for: url)
         let path = url.standardizedFileURL.path
+        if name == "On My iPhone" || name == "iCloud Drive" {
+            return name
+        }
         if FileManager.default.isUbiquitousItem(at: url) || path.contains("Mobile Documents") || path.contains("com~apple~CloudDocs") {
             return "iCloud Drive › \(name)"
         }
@@ -545,10 +545,184 @@ public final class CustomSaveFolderManager {
     public nonisolated static func clearRecord(defaults: UserDefaults = LiveContainerEnvironment.sharedDefaults) {
         defaults.removeObject(forKey: recordDefaultsKey)
     }
+
+    // MARK: - Persistent Bookmark Helpers (iOS & LiveContainer Parity)
+
+    public nonisolated static func createPersistentBookmark(for url: URL) -> Data? {
+        if let data = try? url.bookmarkData(
+            options: .minimalBookmark,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ), !data.isEmpty {
+            return data
+        }
+        // Fallback matching LiveContainer's `LCUtils.bookmarkForURL:` (`NSURLBookmarkCreationWithSecurityScope = 1 << 11`)
+        let securityScopedFallback = URL.BookmarkCreationOptions(rawValue: 1 << 11)
+        if let data = try? url.bookmarkData(
+            options: securityScopedFallback,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ), !data.isEmpty {
+            return data
+        }
+        return try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+    }
+
+    public nonisolated static func resolvePersistentBookmark(_ bookmarkData: Data, isStale: inout Bool) -> URL? {
+        if let url = try? URL(
+            resolvingBookmarkData: bookmarkData,
+            options: [.withoutUI, .withoutImplicitStartAccessing],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        ) {
+            return url
+        }
+        return try? URL(
+            resolvingBookmarkData: bookmarkData,
+            options: [],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+    }
+}
+
+// MARK: - LiveContainer `DocumentPicker.m` Runtime Bridge
+
+/// Isolated Objective-C runtime bridge keeping `UIDocumentPickerViewController` working cleanly inside
+/// LiveContainer without requiring manual per-app LiveContainer settings.
+///
+/// Uses `dladdr` image-path verification (`/System/Library/`, `/System/Cryptexes/`, `/usr/lib/`) to tell
+/// genuinely exchanged Apple IMPs apart from unswizzled `TweakLoader` category methods—eliminating any
+/// possibility of infinite self-recursion across LiveContainer versions and toggle combinations.
+@MainActor
+public enum LiveContainerDocumentPickerBridge {
+    private static var didInstallHostFix = false
+
+    public nonisolated static func imagePath(for imp: IMP) -> String? {
+        var info = Dl_info()
+        guard dladdr(UnsafeRawPointer(imp), &info) != 0,
+              let fname = info.dli_fname else {
+            return nil
+        }
+        return String(cString: fname)
+    }
+
+    public nonisolated static func isAppleSystemImplementation(_ imp: IMP) -> Bool {
+        guard let path = imagePath(for: imp) else { return false }
+        return path.contains("/System/Library/")
+            || path.contains("/System/Cryptexes/")
+            || path.contains("/usr/lib/")
+    }
+
+    /// Ensures `DOCConfiguration.setHostIdentifier:` receives LiveContainer's genuine signed host bundle ID
+    /// (`lcMainBundle`) even when LiveContainer's `fixFilePickerNew` toggle is off, preventing silent
+    /// `fileproviderd` rejections in both folder-open and file-export pickers.
+    @discardableResult
+    public static func installHostIdentifierFixIfNeeded() -> Bool {
+        guard LiveContainerEnvironment.isRunningInLiveContainer else { return false }
+        guard !didInstallHostFix else { return true }
+
+        _ = UIDocumentPickerViewController.self
+        var docClass: AnyClass? = NSClassFromString("DOCConfiguration")
+        if docClass == nil {
+            _ = dlopen("/System/Library/PrivateFrameworks/DocumentManagerCore.framework/DocumentManagerCore", RTLD_LAZY)
+            docClass = NSClassFromString("DOCConfiguration")
+        }
+        guard let targetClass = docClass,
+              let setHostMethod = class_getInstanceMethod(targetClass, NSSelectorFromString("setHostIdentifier:")) else {
+            return false
+        }
+        if !isAppleSystemImplementation(method_getImplementation(setHostMethod)) {
+            didInstallHostFix = true
+            return true
+        }
+        let installed = installHostIdentifierFix(
+            on: targetClass,
+            hostBundleID: CustomSaveFolderManager.currentHostBundleIdentifier()
+        )
+        if installed {
+            didInstallHostFix = true
+        }
+        return installed
+    }
+
+    @discardableResult
+    static func installHostIdentifierFix(on targetClass: AnyClass, hostBundleID: String) -> Bool {
+        let setHostSel = NSSelectorFromString("setHostIdentifier:")
+        guard let method = class_getInstanceMethod(targetClass, setHostSel) else { return false }
+        let origIMP = method_getImplementation(method)
+        typealias SetHostIDIMP = @convention(c) (AnyObject, Selector, NSString?) -> Void
+        let callOrig = unsafeBitCast(origIMP, to: SetHostIDIMP.self)
+        let resolvedHostID = hostBundleID as NSString
+        let block: @convention(block) (AnyObject, NSString?) -> Void = { obj, _ in
+            callOrig(obj, setHostSel, resolvedHostID)
+        }
+        method_setImplementation(method, imp_implementationWithBlock(block))
+        return true
+    }
+
+    /// Builds a `UIDocumentPickerViewController` strictly in single-folder open-in-place mode (`[.folder]`,
+    /// `asCopy: false`), bypassing LiveContainer `DocumentPicker.m`'s `[.item, .folder]` rewrite safely.
+    public static func makeFolderPickerController(
+        initialDirectoryURL: URL?,
+        pickerClass: UIDocumentPickerViewController.Type = UIDocumentPickerViewController.self,
+        isOriginalImplementation: (IMP) -> Bool = isAppleSystemImplementation
+    ) -> UIDocumentPickerViewController {
+        installHostIdentifierFixIfNeeded()
+
+        let canonicalInitSel = NSSelectorFromString("initForOpeningContentTypes:asCopy:")
+        let lcSwappedInitSel = NSSelectorFromString("hook_initForOpeningContentTypes:asCopy:")
+        let controller: UIDocumentPickerViewController
+
+        if let canonicalInitMethod = class_getInstanceMethod(pickerClass, canonicalInitSel),
+           let origInitMethod = class_getInstanceMethod(pickerClass, lcSwappedInitSel),
+           !isOriginalImplementation(method_getImplementation(canonicalInitMethod)),
+           isOriginalImplementation(method_getImplementation(origInitMethod)),
+           let metaClass = object_getClass(pickerClass),
+           let allocMethod = class_getInstanceMethod(metaClass, NSSelectorFromString("alloc")) {
+            typealias AllocIMP = @convention(c) (AnyClass, Selector) -> Unmanaged<AnyObject>
+            typealias InitContentTypesIMP = @convention(c) (
+                UnsafeMutableRawPointer,
+                Selector,
+                NSArray,
+                ObjCBool
+            ) -> UnsafeMutableRawPointer?
+
+            let callAlloc = unsafeBitCast(method_getImplementation(allocMethod), to: AllocIMP.self)
+            let callOrigInit = unsafeBitCast(method_getImplementation(origInitMethod), to: InitContentTypesIMP.self)
+            let allocated = callAlloc(pickerClass, NSSelectorFromString("alloc"))
+            let soleFolderTypes: NSArray = [UTType.folder] as NSArray
+            if let initializedPtr = callOrigInit(allocated.toOpaque(), canonicalInitSel, soleFolderTypes, ObjCBool(false)) {
+                controller = Unmanaged<UIDocumentPickerViewController>.fromOpaque(initializedPtr).takeRetainedValue()
+            } else {
+                controller = pickerClass.init(forOpeningContentTypes: [.folder])
+            }
+        } else {
+            controller = pickerClass.init(forOpeningContentTypes: [.folder])
+        }
+
+        let canonicalMultiSel = NSSelectorFromString("setAllowsMultipleSelection:")
+        let lcSwappedMultiSel = NSSelectorFromString("hook_setAllowsMultipleSelection:")
+        if let canonicalMultiMethod = class_getInstanceMethod(pickerClass, canonicalMultiSel),
+           let origMultiMethod = class_getInstanceMethod(pickerClass, lcSwappedMultiSel),
+           !isOriginalImplementation(method_getImplementation(canonicalMultiMethod)),
+           isOriginalImplementation(method_getImplementation(origMultiMethod)) {
+            typealias SetBoolIMP = @convention(c) (AnyObject, Selector, ObjCBool) -> Void
+            let callOrigSetMulti = unsafeBitCast(method_getImplementation(origMultiMethod), to: SetBoolIMP.self)
+            callOrigSetMulti(controller, canonicalMultiSel, ObjCBool(false))
+        } else {
+            controller.allowsMultipleSelection = false
+        }
+
+        if let initialDirectoryURL {
+            controller.directoryURL = initialDirectoryURL
+        }
+        return controller
+    }
 }
 
 /// Native iOS Folder Picker (`UIDocumentPickerViewController(forOpeningContentTypes: [.folder])`)
-/// granting in-place Security-Scoped Folder access (never `asCopy`).
+/// granting in-place Security-Scoped Folder access (never `asCopy`), with LiveContainer self-healing.
 struct SaveFolderPickerSheet: UIViewControllerRepresentable {
     let initialDirectoryURL: URL?
     let onPick: (URL) -> Void
@@ -559,12 +733,7 @@ struct SaveFolderPickerSheet: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let controller = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
-        controller.allowsMultipleSelection = false
-        controller.shouldShowFileExtensions = true
-        if let initialDirectoryURL {
-            controller.directoryURL = initialDirectoryURL
-        }
+        let controller = LiveContainerDocumentPickerBridge.makeFolderPickerController(initialDirectoryURL: initialDirectoryURL)
         controller.delegate = context.coordinator
         return controller
     }
@@ -615,56 +784,179 @@ enum SaveFolderFilesLauncher {
     }
 }
 
-/// Reusable folder-picker + one-shot migration + multi-host mismatch guard shared between
-/// `LibraryVaultView`, `EngineStatusView`, and `BrowserWorkspaceView` (zero duplicated dialogs).
-struct SaveFolderPickerFlowModifier: ViewModifier {
-    private struct PendingMoveOffer {
+/// Per-screen presentation state for `SaveLocationRow` and `.saveFolderPickerFlow(_:)`.
+/// Scoped locally via `@State` so sibling tabs in `TabView` never collide on dialogs.
+struct SaveFolderFlowState {
+    struct PendingMove {
         let sourceDir: URL
         let fileCount: Int
         let destinationName: String
+        let isResetToDefault: Bool
     }
 
+    var isShowingPicker: Bool = false
+    var pendingMove: PendingMove? = nil
+}
+
+/// Shared native `.insetGrouped` row for selecting, revealing, or resetting the Downloads save folder.
+/// Used identically by `Downloads → Storage` (`LibraryVaultView`) and `Engine → Storage` (`EngineStatusView`).
+struct SaveLocationRow: View {
+    @Environment(\.dysprosiumTokens) private var tokens
+    @Binding var flow: SaveFolderFlowState
+    let accessibilityID: String
+    var onFolderUpdated: (() -> Void)? = nil
+
+    private var saveFolderManager = CustomSaveFolderManager.shared
+
+    var body: some View {
+        if case .defaultInternal = saveFolderManager.status {
+            Button {
+                flow.isShowingPicker = true
+            } label: {
+                rowContent(chevron: "chevron.right")
+            }
+            .foregroundStyle(Color.primary)
+            .tint(Color.primary)
+            .accessibilityIdentifier(accessibilityID)
+        } else {
+            Menu {
+                switch saveFolderManager.status {
+                case .defaultInternal:
+                    EmptyView()
+                case .customActive:
+                    Button {
+                        flow.isShowingPicker = true
+                    } label: {
+                        Label("Change Save Folder…", systemImage: "folder.badge.gearshape")
+                    }
+                    Button {
+                        SaveFolderFilesLauncher.openActiveDownloadsFolder()
+                    } label: {
+                        Label("Show in iOS Files", systemImage: "folder")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        let offer = saveFolderManager.resetToDefaultFolder()
+                        if let src = offer.offerMoveFrom, offer.movableFileCount > 0 {
+                            flow.pendingMove = SaveFolderFlowState.PendingMove(
+                                sourceDir: src,
+                                fileCount: offer.movableFileCount,
+                                destinationName: "App Storage",
+                                isResetToDefault: true
+                            )
+                        }
+                        onFolderUpdated?()
+                    } label: {
+                        Label("Reset to Default Storage", systemImage: "arrow.uturn.backward")
+                    }
+                case .needsHostGrant(let folderName, _, _):
+                    Button {
+                        flow.isShowingPicker = true
+                    } label: {
+                        Label("Grant Access to \"\(folderName)\"…", systemImage: "folder.badge.person.crop")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        _ = saveFolderManager.resetToDefaultFolder()
+                        onFolderUpdated?()
+                    } label: {
+                        Label("Reset to Default Storage", systemImage: "arrow.uturn.backward")
+                    }
+                }
+            } label: {
+                rowContent(chevron: "chevron.up.chevron.down")
+            }
+            .foregroundStyle(Color.primary)
+            .tint(Color.primary)
+            .accessibilityIdentifier(accessibilityID)
+        }
+    }
+
+    @ViewBuilder
+    private func rowContent(chevron: String) -> some View {
+        HStack(spacing: 10) {
+            Text("Save Location")
+                .foregroundStyle(Color.primary)
+            Spacer(minLength: 8)
+            Group {
+                switch saveFolderManager.status {
+                case .defaultInternal:
+                    Text("App Storage")
+                        .foregroundStyle(Color.secondary)
+                case .customActive(_, _, let breadcrumb):
+                    Text(breadcrumb)
+                        .foregroundStyle(tokens.accent)
+                case .needsHostGrant(let folderName, _, _):
+                    Label("Link \"\(folderName)\"", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(tokens.statusWarning)
+                }
+            }
+            .font(.subheadline)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            Image(systemName: chevron)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color(.tertiaryLabel))
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+/// Reusable folder-picker + one-shot migration + multi-host mismatch guard shared between
+/// `LibraryVaultView`, `EngineStatusView`, and `BrowserWorkspaceView` (zero duplicated dialogs).
+struct SaveFolderPickerFlowModifier: ViewModifier {
     private struct PendingMismatchConfirmation {
         let pickedURL: URL
         let pickedName: String
         let expectedName: String
     }
 
-    @Binding var isShowingPicker: Bool
+    @Binding var flow: SaveFolderFlowState
     var onFolderUpdated: (() -> Void)?
 
     @State private var saveFolderManager = CustomSaveFolderManager.shared
-    @State private var pendingMove: PendingMoveOffer?
     @State private var pendingMismatch: PendingMismatchConfirmation?
     @State private var rejectedErrorMessage: String?
 
+    private var moveDialogTitle: String {
+        guard let offer = flow.pendingMove else { return "" }
+        if offer.isResetToDefault {
+            return "Move \(offer.fileCount) Downloads Back to Default?"
+        }
+        return "Move \(offer.fileCount) Existing Downloads?"
+    }
+
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $isShowingPicker) {
+            .sheet(isPresented: $flow.isShowingPicker) {
                 SaveFolderPickerSheet(
                     initialDirectoryURL: saveFolderManager.suggestedPickerDirectoryURL,
                     onPick: { pickedURL in
-                        isShowingPicker = false
+                        flow.isShowingPicker = false
                         handlePick(pickedURL, forceSwitchSharedTarget: false)
                     },
                     onCancel: {
-                        isShowingPicker = false
+                        flow.isShowingPicker = false
                     }
                 )
                 .ignoresSafeArea()
             }
             .confirmationDialog(
-                "Move \(pendingMove?.fileCount ?? 0) Existing Downloads?",
+                moveDialogTitle,
                 isPresented: Binding(
-                    get: { pendingMove != nil },
+                    get: { flow.pendingMove != nil },
                     set: { if !$0 { dismissMoveOffer() } }
                 ),
                 titleVisibility: .visible
             ) {
-                if let offer = pendingMove {
-                    Button("Move \(offer.fileCount) \(offer.fileCount == 1 ? "File" : "Files") to \(offer.destinationName)") {
+                if let offer = flow.pendingMove {
+                    let fileWord = offer.fileCount == 1 ? "File" : "Files"
+                    let moveLabel = offer.isResetToDefault
+                        ? "Move \(offer.fileCount) \(fileWord)"
+                        : "Move \(offer.fileCount) \(fileWord) to \(offer.destinationName)"
+                    Button(moveLabel) {
                         let source = offer.sourceDir
-                        pendingMove = nil
+                        flow.pendingMove = nil
                         Task { @MainActor in
                             _ = await saveFolderManager.moveExistingFiles(from: source)
                             onFolderUpdated?()
@@ -675,8 +967,12 @@ struct SaveFolderPickerFlowModifier: ViewModifier {
                     }
                 }
             } message: {
-                if let offer = pendingMove {
-                    Text("Move existing files once so everything lives in \(offer.destinationName). Left-behind files remain untouched in their previous location.")
+                if let offer = flow.pendingMove {
+                    if offer.isResetToDefault {
+                        Text("Files left in the previous folder remain safe in iOS Files.")
+                    } else {
+                        Text("Move existing files once so everything lives in \(offer.destinationName). Left-behind files remain untouched in their previous location.")
+                    }
                 }
             }
             .confirmationDialog(
@@ -695,7 +991,7 @@ struct SaveFolderPickerFlowModifier: ViewModifier {
                     }
                     Button("Pick \"\(mismatch.expectedName)\" Instead") {
                         pendingMismatch = nil
-                        isShowingPicker = true
+                        flow.isShowingPicker = true
                     }
                     Button("Cancel", role: .cancel) {
                         pendingMismatch = nil
@@ -729,7 +1025,12 @@ struct SaveFolderPickerFlowModifier: ViewModifier {
         case .activated(let folderName, let offerMoveFrom, let count):
             onFolderUpdated?()
             if let source = offerMoveFrom, count > 0 {
-                pendingMove = PendingMoveOffer(sourceDir: source, fileCount: count, destinationName: folderName)
+                flow.pendingMove = SaveFolderFlowState.PendingMove(
+                    sourceDir: source,
+                    fileCount: count,
+                    destinationName: folderName,
+                    isResetToDefault: false
+                )
             }
         case .confirmSwitchFromExpected(let pickedURL, let pickedName, let expectedName):
             pendingMismatch = PendingMismatchConfirmation(
@@ -743,17 +1044,45 @@ struct SaveFolderPickerFlowModifier: ViewModifier {
     }
 
     private func dismissMoveOffer() {
-        pendingMove = nil
+        flow.pendingMove = nil
         saveFolderManager.dismissPendingMoveOffer()
         onFolderUpdated?()
     }
 }
 
+private struct SaveFolderPickerBoolAdapterModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    var onFolderUpdated: (() -> Void)?
+    @State private var pendingMove: SaveFolderFlowState.PendingMove?
+
+    func body(content: Content) -> some View {
+        content.modifier(
+            SaveFolderPickerFlowModifier(
+                flow: Binding(
+                    get: { SaveFolderFlowState(isShowingPicker: isPresented, pendingMove: pendingMove) },
+                    set: {
+                        isPresented = $0.isShowingPicker
+                        pendingMove = $0.pendingMove
+                    }
+                ),
+                onFolderUpdated: onFolderUpdated
+            )
+        )
+    }
+}
+
 extension View {
+    func saveFolderPickerFlow(
+        _ flow: Binding<SaveFolderFlowState>,
+        onFolderUpdated: (() -> Void)? = nil
+    ) -> some View {
+        modifier(SaveFolderPickerFlowModifier(flow: flow, onFolderUpdated: onFolderUpdated))
+    }
+
     func saveFolderPickerFlow(
         isPresented: Binding<Bool>,
         onFolderUpdated: (() -> Void)? = nil
     ) -> some View {
-        modifier(SaveFolderPickerFlowModifier(isShowingPicker: isPresented, onFolderUpdated: onFolderUpdated))
+        modifier(SaveFolderPickerBoolAdapterModifier(isPresented: isPresented, onFolderUpdated: onFolderUpdated))
     }
 }

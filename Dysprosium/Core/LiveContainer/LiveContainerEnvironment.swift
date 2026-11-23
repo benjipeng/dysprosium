@@ -277,21 +277,6 @@ public enum LiveContainerEnvironment {
         return freedBytes
     }
 
-    /// Human-readable storage topology label surfaced in the Engine tab so users can confirm
-    /// unified multi-host persistence at a glance.
-    public static var storageTopologyDescription: String {
-        if !isRunningInLiveContainer {
-            return "Standalone Sandbox"
-        }
-        if hostSharedAppGroupURL != nil {
-            return "Shared App Group (LC 1/2/3+)"
-        }
-        if resolveLiveContainerHostRoot() != nil {
-            return "Host Container (Single LC)"
-        }
-        return "Guest Container"
-    }
-
     /// Opens the guest executable image explicitly. Inside LiveContainer, `dlopen(nil, ...)`
     /// inspects the host executable first; passing `Bundle.main.executablePath` guarantees
     /// C-ABI bridges (`@_cdecl` exports) resolve against Dysprosium's own Mach-O image.
@@ -342,6 +327,17 @@ public enum LiveContainerEnvironment {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
+    /// Whether the active downloads directory can be browsed directly in iOS Files.app.
+    public static var isDownloadsDirectoryVisibleInFiles: Bool {
+        if isUsingCustomDownloadsFolder {
+            return true
+        }
+        if isRunningInLiveContainer {
+            return isPrivateHostDocumentsLayout() || hostSharedAppGroupURL == nil
+        }
+        return true
+    }
+
     /// User-facing bread-crumb path displayed in the Downloads & Engine tabs.
     public static var displayDownloadsPath: String {
         let custom = customFolderState.snapshot()
@@ -350,7 +346,7 @@ public enum LiveContainerEnvironment {
         }
         if isRunningInLiveContainer {
             if !isPrivateHostDocumentsLayout(), hostSharedAppGroupURL != nil {
-                return "Shared Vault (LC 1/2/3+) · Export via Share"
+                return "App Storage"
             }
             return "On My iPhone › LiveContainer › Dysprosium › Downloads"
         }

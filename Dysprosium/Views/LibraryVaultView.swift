@@ -159,8 +159,7 @@ struct LibraryVaultView: View {
     @State private var exportingFileItem: ExportableFileItem?
     @State private var isConfirmingClearHistory: Bool = false
     @State private var clearHistoryOnlyOffDevice: Bool = false
-    @State private var isShowingSaveFolderPicker: Bool = false
-    @State private var resetMoveOffer: (sourceDir: URL, count: Int)?
+    @State private var saveFolderFlow = SaveFolderFlowState()
     private var saveFolderManager = CustomSaveFolderManager.shared
 
     private static let appleCDNRangeMP4 = URL(
@@ -449,33 +448,8 @@ struct LibraryVaultView: View {
         .onChange(of: saveFolderManager.revision) { _, _ in
             refreshDiskInventory()
         }
-        .saveFolderPickerFlow(isPresented: $isShowingSaveFolderPicker) {
+        .saveFolderPickerFlow($saveFolderFlow) {
             refreshDiskInventory()
-        }
-        .confirmationDialog(
-            "Move \(resetMoveOffer?.count ?? 0) Downloads Back to Default?",
-            isPresented: Binding(
-                get: { resetMoveOffer != nil },
-                set: { if !$0 { resetMoveOffer = nil; saveFolderManager.dismissPendingMoveOffer() } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let offer = resetMoveOffer {
-                Button("Move \(offer.count) \(offer.count == 1 ? "File" : "Files")") {
-                    let src = offer.sourceDir
-                    resetMoveOffer = nil
-                    Task { @MainActor in
-                        _ = await saveFolderManager.moveExistingFiles(from: src)
-                        refreshDiskInventory()
-                    }
-                }
-                Button("Leave in Previous Folder", role: .cancel) {
-                    resetMoveOffer = nil
-                    saveFolderManager.dismissPendingMoveOffer()
-                }
-            }
-        } message: {
-            Text("Files left in the previous folder remain safe in iOS Files.")
         }
         .sheet(isPresented: $isShowingNewTransferSheet) {
             NewTransferSheet(selectedLanes: $selectedLanes) { url, lanes in
@@ -593,7 +567,7 @@ struct LibraryVaultView: View {
 
                         HStack(spacing: 10) {
                             Button {
-                                isShowingSaveFolderPicker = true
+                                saveFolderFlow.isShowingPicker = true
                             } label: {
                                 Text("Grant Access…")
                                     .font(.subheadline.weight(.semibold))
@@ -867,7 +841,14 @@ struct LibraryVaultView: View {
             }
 
             // 4. Native Storage Summary & Export Handoff
-            Section {
+            Section("Storage") {
+                SaveLocationRow(
+                    flow: $saveFolderFlow,
+                    accessibilityID: "downloads-choose-save-folder-button"
+                ) {
+                    refreshDiskInventory()
+                }
+
                 LabeledContent("Downloaded") {
                     Text("\(DysprosiumFormatters.bytes(totalDownloadedBytes)) · \(allCount) files")
                         .font(.subheadline.monospacedDigit())
@@ -890,43 +871,11 @@ struct LibraryVaultView: View {
                     }
                 }
 
-                Button {
-                    isShowingSaveFolderPicker = true
-                } label: {
-                    Label(
-                        saveFolderManager.status.isCustomActive ? "Change Save Folder…" : "Choose Save Folder…",
-                        systemImage: "folder.badge.plus"
-                    )
-                    .symbolRenderingMode(.monochrome)
-                }
-                .accessibilityIdentifier("downloads-choose-save-folder-button")
-
-                if saveFolderManager.status.isCustomActive || !LiveContainerEnvironment.displayDownloadsPath.hasPrefix("Shared Vault") {
-                    Button {
-                        SaveFolderFilesLauncher.openActiveDownloadsFolder()
-                    } label: {
-                        Label("Open in iOS Files", systemImage: "folder")
+                if !LiveContainerEnvironment.isDownloadsDirectoryVisibleInFiles && allCount > 0 {
+                    ShareLink(item: LiveContainerEnvironment.downloadsDirectory) {
+                        Label("Export Downloads Folder…", systemImage: "square.and.arrow.up")
                             .symbolRenderingMode(.monochrome)
                     }
-                    .accessibilityIdentifier("downloads-open-in-files-button")
-                }
-
-                if saveFolderManager.status.isCustomActive {
-                    Button(role: .destructive) {
-                        let offer = saveFolderManager.resetToDefaultFolder()
-                        if let src = offer.offerMoveFrom, offer.movableFileCount > 0 {
-                            resetMoveOffer = (src, offer.movableFileCount)
-                        }
-                        refreshDiskInventory()
-                    } label: {
-                        Label("Reset to Default Storage", systemImage: "arrow.uturn.backward")
-                            .symbolRenderingMode(.monochrome)
-                    }
-                }
-
-                ShareLink(item: LiveContainerEnvironment.downloadsDirectory) {
-                    Label("Export Downloads Folder…", systemImage: "square.and.arrow.up")
-                        .symbolRenderingMode(.monochrome)
                 }
 
                 if scheduler.completedJobCount > 0 {
@@ -938,16 +887,8 @@ struct LibraryVaultView: View {
                             .symbolRenderingMode(.monochrome)
                     }
                 }
-            } header: {
-                Text("Storage")
-            } footer: {
-                Text(
-                    saveFolderManager.status.isCustomActive
-                        ? LiveContainerEnvironment.displayDownloadsPath
-                        : "\(LiveContainerEnvironment.displayDownloadsPath) · Excluded from iCloud Backup"
-                )
-                .font(.caption2.monospaced())
             }
+            .font(.subheadline)
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(DysprosiumTokens.Space.sectionSpacing)
@@ -1344,7 +1285,7 @@ private struct VaultFileInspectorView: View {
                         .symbolRenderingMode(.monochrome)
                 }
 
-                if !LiveContainerEnvironment.displayDownloadsPath.hasPrefix("Shared Vault") {
+                if LiveContainerEnvironment.isDownloadsDirectoryVisibleInFiles {
                     Button(action: onOpenInFiles) {
                         Label("Show in iOS Files", systemImage: "folder")
                             .symbolRenderingMode(.monochrome)
@@ -1648,7 +1589,7 @@ private struct NativeAVPlayerContainer: UIViewControllerRepresentable {
     }
 }
 
-// MARK: - Native Document Export Picker (Shared Vault → iCloud Drive / On My iPhone)
+// MARK: - Native Document Export Picker
 
 private struct DocumentExportPicker: UIViewControllerRepresentable {
     let url: URL
@@ -1659,6 +1600,7 @@ private struct DocumentExportPicker: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        LiveContainerDocumentPickerBridge.installHostIdentifierFixIfNeeded()
         let controller = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
         controller.shouldShowFileExtensions = true
         controller.delegate = context.coordinator
