@@ -225,7 +225,7 @@ public final class FingerprintAuditEngine {
         )
 
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = (mode == .privateEphemeral) ? .nonPersistent() : .default()
+        config.websiteDataStore = .nonPersistent()
         config.defaultWebpagePreferences.preferredContentMode = userAgentProfile.preferredContentMode
 
         let controller = WKUserContentController()

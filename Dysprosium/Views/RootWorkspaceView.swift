@@ -99,8 +99,8 @@ public struct RootWorkspaceView: View {
                 activeTab = .browser
             }
             let targetScheduler = scheduler
-            browserStore.onScrubTransferAuthData = { [weak targetScheduler] in
-                targetScheduler?.scrubPersistedAuthDataAndOrphanedStaging()
+            browserStore.onScrubTransferAuthData = { [weak targetScheduler] profileID in
+                targetScheduler?.scrubPersistedAuthDataAndOrphanedStaging(matchingProfileID: profileID)
             }
             browserStore.activeTransferIDsProvider = { [weak targetScheduler] in
                 Set(

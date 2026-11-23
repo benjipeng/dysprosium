@@ -848,7 +848,7 @@ final class RangeEngineTests: XCTestCase {
         ]).write(to: legacyHistoryJSON)
 
         let store = BrowserSQLiteStore(stateDirectory: tempDir)
-        XCTAssertEqual(store.schemaVersion, 3)
+        XCTAssertEqual(store.schemaVersion, 4)
         XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.appendingPathComponent("favorites_backup.json").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFoldersJSON.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: legacyBookmarksJSON.path))

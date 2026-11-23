@@ -12,6 +12,8 @@ struct EngineStatusView: View {
     @State private var browserFootprint: BrowserStorageFootprint?
     @State private var isShowingFilterSheet: Bool = false
     @State private var isShowingClearStorageSheet: Bool = false
+    @State private var isShowingProfilesSheet: Bool = false
+    @State private var isViewVisible: Bool = false
     @State private var saveFolderFlow = SaveFolderFlowState()
     private var contentBlocker = CleanroomContentBlocker.shared
     private var saveFolderManager = CustomSaveFolderManager.shared
@@ -20,7 +22,15 @@ struct EngineStatusView: View {
     var body: some View {
         List {
             Section {
-                DysprosiumPaletteSelectorRows()
+                DysprosiumPaletteSelectorRows(
+                    title: "Accent",
+                    profileContextName: browserStore.isMultiProfileEnabled
+                        ? browserStore.activeProfile.name
+                        : nil,
+                    onSelect: { preset in
+                        browserStore.setActiveProfilePalette(preset)
+                    }
+                )
 
                 HStack(spacing: 12) {
                     Text("Web Dark Mode")
@@ -45,6 +55,34 @@ struct EngineStatusView: View {
                 Text("Appearance")
             } footer: {
                 Text("Auto adapts light-only websites when iOS is in Dark Mode; On applies the chosen web theme at all times.")
+            }
+
+            Section {
+                Button {
+                    isShowingProfilesSheet = true
+                } label: {
+                    HStack(spacing: 10) {
+                        Label("Profiles", systemImage: browserStore.isMultiProfileEnabled ? browserStore.activeProfile.symbolName : "person.2")
+                            .symbolRenderingMode(.monochrome)
+                            .foregroundStyle(Color.primary)
+                        Spacer(minLength: 8)
+                        Text(
+                            browserStore.isMultiProfileEnabled
+                                ? "\(browserStore.activeProfile.name) (\(browserStore.profiles.count))"
+                                : browserStore.activeProfile.name
+                        )
+                        .font(.subheadline)
+                        .foregroundStyle(browserStore.isMultiProfileEnabled ? tokens.accent : Color.secondary)
+                        .lineLimit(1)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color(.tertiaryLabel))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .foregroundStyle(Color.primary)
+                .tint(Color.primary)
+                .accessibilityIdentifier("engine-profiles-button")
             }
 
             Section {
@@ -92,7 +130,11 @@ struct EngineStatusView: View {
                     }
                 }
             } header: {
-                Text("Browser Identity & Privacy")
+                Text(
+                    browserStore.isMultiProfileEnabled
+                        ? "Browser Identity · \(browserStore.activeProfile.name)"
+                        : "Browser Identity & Privacy"
+                )
             } footer: {
                 Text("Configures default search, Safari persona User-Agent, and offline WebKit fingerprint entropy auditing.")
             }
@@ -157,7 +199,11 @@ struct EngineStatusView: View {
                 )
                 .font(.subheadline.monospacedDigit())
 
-                LabeledContent("Browser Cache & Storage") {
+                LabeledContent(
+                    browserStore.isMultiProfileEnabled
+                        ? "Browser Cache (\(browserStore.activeProfile.name))"
+                        : "Browser Cache & Storage"
+                ) {
                     if let browserFootprint {
                         let byteText = DysprosiumFormatters.bytes(
                             Int64(min(browserFootprint.totalBytes, UInt64(Int64.max)))
@@ -202,12 +248,24 @@ struct EngineStatusView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(DysprosiumTokens.Space.sectionSpacing)
+        .onAppear {
+            isViewVisible = true
+            Task { @MainActor in
+                await refreshStorageDiagnostics()
+            }
+        }
+        .onDisappear {
+            isViewVisible = false
+        }
         .task {
             probe = await scheduler.runtimeSummary()
             await refreshStorageDiagnostics()
         }
+        .sheet(isPresented: $isShowingProfilesSheet) {
+            ProfileManagementSheet(browserStore: browserStore)
+        }
         .sheet(isPresented: $isShowingFilterSheet) {
-            FilterShieldManagementSheet(session: nil)
+            FilterShieldManagementSheet(session: nil, browserStore: browserStore)
         }
         .sheet(
             isPresented: $isShowingClearStorageSheet,
@@ -217,7 +275,16 @@ struct EngineStatusView: View {
                 }
             }
         ) {
-            ClearBrowsingDataSheet(browserStore: browserStore)
+            ClearBrowsingDataSheet(browserStore: browserStore, targetProfileID: browserStore.activeProfileID)
+        }
+        .onChange(of: browserStore.activeProfileID) { _, _ in
+            guard isViewVisible else { return }
+            Task { @MainActor in
+                await refreshStorageDiagnostics()
+            }
+        }
+        .onChange(of: fingerprintShield.isEnabled) { _, _ in
+            browserStore.refreshLiveUserAgentsForFingerprintShieldToggle()
         }
         .saveFolderPickerFlow($saveFolderFlow) {
             Task { @MainActor in

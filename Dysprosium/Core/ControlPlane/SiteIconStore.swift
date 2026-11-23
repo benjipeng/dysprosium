@@ -604,7 +604,10 @@ public struct SiteIconView: View {
                 .strokeBorder(.primary.opacity(0.08), lineWidth: 0.5)
         }
         .task(id: hostKey) {
-            if loadedIcon == nil {
+            if let cached = SiteIconStore.shared.cachedIcon(for: urlString) {
+                loadedIcon = cached
+            } else {
+                loadedIcon = nil
                 loadedIcon = await SiteIconStore.shared.resolveIcon(for: urlString)
             }
         }

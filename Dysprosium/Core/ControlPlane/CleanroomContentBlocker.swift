@@ -96,6 +96,7 @@ public final class CleanroomContentBlocker {
 
     private struct AttachedControllerEntry {
         weak var controller: WKUserContentController?
+        var profileID: String?
         var isEnabledProvider: @MainActor () -> Bool
         var currentHostProvider: @MainActor () -> String?
         var fingerprintSeedProvider: @MainActor () -> String?
@@ -105,6 +106,8 @@ public final class CleanroomContentBlocker {
         var lastMaskFoldableScreenOverride: Bool?
         var lastUserAgentProfile: BrowserUserAgentProfile?
         var lastAutoWebPageDarkMode: Bool?
+        var lastAppliedRuleListEnabled: Bool?
+        var lastAppliedRuleListGeneration: UInt64?
     }
 
     private final class SubframeHostTracker {
@@ -296,6 +299,13 @@ public final class CleanroomContentBlocker {
         )
     }
 
+    /// Clears legacy global bypassed hosts from memory once `BrowserSQLiteStore` migrates them
+    /// into Default Profile's `site_rules` so secondary profiles stay strictly isolated.
+    public func clearLegacyBypassedHosts() {
+        guard stateDefaultsNamespace.isEmpty else { return }
+        bypassedHosts.removeAll(keepingCapacity: false)
+    }
+
     // MARK: - WebKit Attachment & Host-Scoped Script Injection
 
     private func normalizeScriptletHost(_ rawHost: String?) -> String? {
@@ -414,7 +424,8 @@ public final class CleanroomContentBlocker {
         shieldEnabled: Bool,
         mainHost: String?
     ) -> Bool {
-        guard effectiveShieldEnabled(globalEnabled: shieldEnabled, forHost: mainHost) else {
+        let trustCallerShield = attachedControllers.first(where: { $0.controller === controller })?.profileID != nil
+        guard trustCallerShield ? shieldEnabled : effectiveShieldEnabled(globalEnabled: shieldEnabled, forHost: mainHost) else {
             return false
         }
         guard !scriptletIndexByHost.isEmpty,
@@ -544,7 +555,7 @@ public final class CleanroomContentBlocker {
             }
             if let fingerprintSeedOverride {
                 attachedControllers[entryIdx].storedExplicitSeedOverride =
-                    (fingerprintSeedOverride == FingerprintShieldEngine.shared.standardSeed) ? nil : fingerprintSeedOverride
+                    (attachedControllers[entryIdx].profileID != nil) ? nil : fingerprintSeedOverride
             }
         }
 
@@ -591,7 +602,8 @@ public final class CleanroomContentBlocker {
         }
 
         var installedHostScriptletSource: String?
-        let effectiveShield = effectiveShieldEnabled(globalEnabled: shieldEnabled, forHost: host)
+        let trustCallerShield = attachedControllers.first(where: { $0.controller === controller })?.profileID != nil
+        let effectiveShield = trustCallerShield ? shieldEnabled : effectiveShieldEnabled(globalEnabled: shieldEnabled, forHost: host)
         if effectiveShield {
             if hasEnabledAntiAdblockSubscription {
                 controller.addUserScript(
@@ -643,6 +655,7 @@ public final class CleanroomContentBlocker {
     /// without forcing a redundant `removeAllUserScripts()` / `removeAllContentRuleLists()` cycle at tab boot.
     public func registerController(
         _ controller: WKUserContentController,
+        profileID: String? = nil,
         currentHostProvider: @escaping @MainActor () -> String? = { nil },
         isEnabledProvider: @escaping @MainActor () -> Bool,
         fingerprintSeedProvider: @escaping @MainActor () -> String? = { nil },
@@ -656,12 +669,13 @@ public final class CleanroomContentBlocker {
         attachedControllers.append(
             AttachedControllerEntry(
                 controller: controller,
+                profileID: profileID,
                 isEnabledProvider: isEnabledProvider,
                 currentHostProvider: currentHostProvider,
                 fingerprintSeedProvider: fingerprintSeedProvider,
                 userAgentProfileProvider: userAgentProfileProvider,
                 autoWebPageDarkModeProvider: autoWebPageDarkModeProvider,
-                storedExplicitSeedOverride: (initialSeed == FingerprintShieldEngine.shared.standardSeed) ? nil : initialSeed,
+                storedExplicitSeedOverride: (profileID != nil || initialSeed == FingerprintShieldEngine.shared.standardSeed) ? nil : initialSeed,
                 lastMaskFoldableScreenOverride: nil,
                 lastUserAgentProfile: initialUA,
                 lastAutoWebPageDarkMode: initialAutoDark
@@ -671,6 +685,7 @@ public final class CleanroomContentBlocker {
 
     public func registerAndApply(
         to controller: WKUserContentController,
+        profileID: String? = nil,
         currentHostProvider: @escaping @MainActor () -> String? = { nil },
         isEnabledProvider: @escaping @MainActor () -> Bool,
         fingerprintSeedProvider: @escaping @MainActor () -> String? = { nil },
@@ -679,6 +694,7 @@ public final class CleanroomContentBlocker {
     ) async {
         registerController(
             controller,
+            profileID: profileID,
             currentHostProvider: currentHostProvider,
             isEnabledProvider: isEnabledProvider,
             fingerprintSeedProvider: fingerprintSeedProvider,
@@ -708,16 +724,25 @@ public final class CleanroomContentBlocker {
         userAgentProfileOverride: BrowserUserAgentProfile? = nil,
         autoWebPageDarkModeOverride: Bool? = nil
     ) async {
-        controller.removeAllContentRuleLists()
-        let entry = attachedControllers.first(where: { $0.controller === controller })
+        let entryIndex = attachedControllers.firstIndex(where: { $0.controller === controller })
+        let entry = entryIndex.map { attachedControllers[$0] }
         let resolvedSeed = fingerprintSeedOverride
             ?? entry?.fingerprintSeedProvider()
             ?? entry?.storedExplicitSeedOverride
         let resolvedUA = userAgentProfileOverride ?? entry?.userAgentProfileProvider() ?? entry?.lastUserAgentProfile
         let resolvedAutoDark = autoWebPageDarkModeOverride ?? entry?.autoWebPageDarkModeProvider() ?? entry?.lastAutoWebPageDarkMode
         let resolvedMask = maskFoldableScreenOverride ?? entry?.lastMaskFoldableScreenOverride
+        let trustCallerShield = entry?.profileID != nil
+        let effectiveEnabled = trustCallerShield ? enabled : effectiveShieldEnabled(globalEnabled: enabled, forHost: host)
 
-        guard effectiveShieldEnabled(globalEnabled: enabled, forHost: host) else {
+        guard effectiveEnabled else {
+            if entry?.lastAppliedRuleListEnabled != false {
+                controller.removeAllContentRuleLists()
+            }
+            if let idx = attachedControllers.firstIndex(where: { $0.controller === controller }) {
+                attachedControllers[idx].lastAppliedRuleListEnabled = false
+                attachedControllers[idx].lastAppliedRuleListGeneration = compiledListsGeneration
+            }
             installUserScripts(
                 on: controller,
                 shieldEnabled: false,
@@ -732,8 +757,13 @@ public final class CleanroomContentBlocker {
         }
 
         let lists = await ensureCompiledLists()
-        guard effectiveShieldEnabled(globalEnabled: enabled, forHost: host) else {
+        let stillEnabled = trustCallerShield ? enabled : effectiveShieldEnabled(globalEnabled: enabled, forHost: host)
+        guard stillEnabled else {
             controller.removeAllContentRuleLists()
+            if let idx = attachedControllers.firstIndex(where: { $0.controller === controller }) {
+                attachedControllers[idx].lastAppliedRuleListEnabled = false
+                attachedControllers[idx].lastAppliedRuleListGeneration = compiledListsGeneration
+            }
             installUserScripts(
                 on: controller,
                 shieldEnabled: false,
@@ -756,16 +786,34 @@ public final class CleanroomContentBlocker {
             userAgentProfileOverride: resolvedUA,
             autoWebPageDarkModeOverride: resolvedAutoDark
         )
-        for list in lists {
-            controller.add(list)
+        let currentIndex = attachedControllers.firstIndex(where: { $0.controller === controller })
+        let currentEntry = currentIndex.map { attachedControllers[$0] }
+        let needsRuleListIPC = currentEntry == nil
+            || currentEntry?.lastAppliedRuleListEnabled != true
+            || currentEntry?.lastAppliedRuleListGeneration != compiledListsGeneration
+        if needsRuleListIPC {
+            controller.removeAllContentRuleLists()
+            for list in lists {
+                controller.add(list)
+            }
+            if let idx = currentIndex {
+                attachedControllers[idx].lastAppliedRuleListEnabled = true
+                attachedControllers[idx].lastAppliedRuleListGeneration = compiledListsGeneration
+            }
         }
     }
 
-    public func reapplyToAttachedControllers(matchingHost normalizedTargetHost: String? = nil) async {
+    public func reapplyToAttachedControllers(
+        matchingHost normalizedTargetHost: String? = nil,
+        matchingProfileID targetProfileID: String? = nil
+    ) async {
         attachedControllers.removeAll { $0.controller == nil }
         let entries = attachedControllers
         for entry in entries {
             guard let controller = entry.controller else { continue }
+            if let targetProfileID, entry.profileID != targetProfileID {
+                continue
+            }
             let host = entry.currentHostProvider()
             if let normalizedTargetHost, normalizeBypassHost(host) != normalizedTargetHost {
                 continue
@@ -1461,13 +1509,15 @@ public final class CleanroomContentBlocker {
             guard let controller = entry.controller else { continue }
             let host = entry.currentHostProvider()
             let rawEnabled = entry.isEnabledProvider()
-            let effectiveEnabled = effectiveShieldEnabled(globalEnabled: rawEnabled, forHost: host)
+            let effectiveEnabled = entry.profileID != nil
+                ? rawEnabled
+                : effectiveShieldEnabled(globalEnabled: rawEnabled, forHost: host)
             let seed = entry.fingerprintSeedProvider() ?? entry.storedExplicitSeedOverride
             let ua = entry.userAgentProfileProvider() ?? entry.lastUserAgentProfile
             let autoDark = entry.autoWebPageDarkModeProvider() ?? entry.lastAutoWebPageDarkMode
             installUserScripts(
                 on: controller,
-                shieldEnabled: rawEnabled,
+                shieldEnabled: effectiveEnabled,
                 forHost: host,
                 includeFingerprintShield: true,
                 fingerprintSeedOverride: seed,
@@ -1480,6 +1530,10 @@ public final class CleanroomContentBlocker {
                 for list in compiledLists {
                     controller.add(list)
                 }
+            }
+            if let idx = attachedControllers.firstIndex(where: { $0.controller === controller }) {
+                attachedControllers[idx].lastAppliedRuleListEnabled = effectiveEnabled
+                attachedControllers[idx].lastAppliedRuleListGeneration = compiledListsGeneration
             }
         }
     }

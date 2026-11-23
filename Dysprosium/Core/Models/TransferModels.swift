@@ -217,6 +217,8 @@ public struct TransferJob: Identifiable, Codable, Sendable, Equatable {
     public var peakSpeedBytesPerSec: Double?
     /// Final average throughput (`downloadedBytes / activeDurationSeconds`) computed on completion.
     public var averageSpeedBytesPerSec: Double?
+    /// Originating browser profile ID (`nil` for legacy/direct/private downloads).
+    public var sourceProfileID: String?
 
     public init(
         id: UUID = UUID(),
@@ -244,7 +246,8 @@ public struct TransferJob: Identifiable, Codable, Sendable, Equatable {
         completedAt: Date? = nil,
         activeDurationSeconds: Double? = nil,
         peakSpeedBytesPerSec: Double? = nil,
-        averageSpeedBytesPerSec: Double? = nil
+        averageSpeedBytesPerSec: Double? = nil,
+        sourceProfileID: String? = nil
     ) {
         self.id = id
         self.sourceURL = sourceURL
@@ -275,6 +278,7 @@ public struct TransferJob: Identifiable, Codable, Sendable, Equatable {
         self.activeDurationSeconds = activeDurationSeconds
         self.peakSpeedBytesPerSec = peakSpeedBytesPerSec
         self.averageSpeedBytesPerSec = averageSpeedBytesPerSec
+        self.sourceProfileID = sourceProfileID
     }
 
     private static let sensitiveAuthHeaderNames: Set<String> = [

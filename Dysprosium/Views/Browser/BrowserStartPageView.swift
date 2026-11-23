@@ -271,8 +271,11 @@ struct BrowserStartPageView: View {
         .onAppear {
             reloadHistoryFirstPage()
         }
-        .onChange(of: browserStore.historyRevision) { _, _ in
+        .onChange(of: "\(browserStore.activeProfileID)-\(browserStore.historyRevision)") { _, _ in
             reloadHistoryFirstPage()
+        }
+        .onChange(of: browserStore.activeProfileID) { _, _ in
+            activeFolderID = nil
         }
         .onChange(of: timeScope) { _, _ in
             reloadHistoryFirstPage()
@@ -311,7 +314,8 @@ struct BrowserStartPageView: View {
         .sheet(isPresented: $isShowingClearDataSheet) {
             ClearBrowsingDataSheet(
                 browserStore: browserStore,
-                initialPreset: initialClearPresetForCurrentScope
+                initialPreset: initialClearPresetForCurrentScope,
+                targetProfileID: browserStore.activeProfileID
             )
         }
         .sheet(isPresented: $isShowingDateWheelPopover) {
@@ -407,8 +411,9 @@ struct BrowserStartPageView: View {
             .navigationBarTitleDisplayMode(.inline)
             .task {
                 let store = browserStore.historyStore
+                let pid = browserStore.activeProfileID
                 let earliest = await Task.detached(priority: .userInitiated) {
-                    store.earliestVisitDate().map { Calendar.current.startOfDay(for: $0) }
+                    store.earliestVisitDate(profileID: pid).map { Calendar.current.startOfDay(for: $0) }
                 }.value
                 if let earliest, !Task.isCancelled {
                     earliestHistoryDate = earliest
@@ -446,6 +451,7 @@ struct BrowserStartPageView: View {
         historyReloadGeneration &+= 1
         let gen = historyReloadGeneration
         let store = browserStore.historyStore
+        let pid = browserStore.activeProfileID
         let q = debouncedQuery
         let bounds = timeScope.resolvedBounds(customDay: pickedDate)
         let pageSize = Self.historyPageSize
@@ -455,14 +461,16 @@ struct BrowserStartPageView: View {
                 searchQuery: q,
                 startDate: bounds.start,
                 endDate: bounds.end,
-                maxDays: 90
+                maxDays: 90,
+                profileID: pid
             )
             let page = store.queryEntriesPage(
                 searchQuery: q,
                 startDate: bounds.start,
                 endDate: bounds.end,
                 limit: pageSize + 1,
-                offset: 0
+                offset: 0,
+                profileID: pid
             )
             await MainActor.run {
                 guard historyReloadGeneration == gen else { return }
@@ -485,6 +493,7 @@ struct BrowserStartPageView: View {
         isLoadingMoreHistory = true
         let currentOffset = loadedEntries.count
         let store = browserStore.historyStore
+        let pid = browserStore.activeProfileID
         let q = debouncedQuery
         let activeScope = timeScope
         let activePicked = pickedDate
@@ -496,10 +505,11 @@ struct BrowserStartPageView: View {
                 startDate: bounds.start,
                 endDate: bounds.end,
                 limit: Self.historyPageSize + 1,
-                offset: currentOffset
+                offset: currentOffset,
+                profileID: pid
             )
             await MainActor.run {
-                guard self.debouncedQuery == q, self.timeScope == activeScope else {
+                guard self.browserStore.activeProfileID == pid, self.debouncedQuery == q, self.timeScope == activeScope else {
                     self.isLoadingMoreHistory = false
                     return
                 }
@@ -672,7 +682,16 @@ struct BrowserStartPageView: View {
             let items = visibleBookmarks
 
             if currentFolders.isEmpty && items.isEmpty {
-                emptyFavoritesPlaceholder
+                if let metrics = viewportMetrics, bisectingVerticalHinge != nil {
+                    let cols = metrics.splitColumnWidths(horizontalPadding: horizontalPadding)
+                    HStack(alignment: .top, spacing: metrics.splitColumnSpacing) {
+                        emptyFavoritesPlaceholder
+                            .frame(width: cols.leading, alignment: .leading)
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    emptyFavoritesPlaceholder
+                }
             } else if let metrics = viewportMetrics, bisectingVerticalHinge != nil {
                 let allTiles: [FavoriteGridTile] = currentFolders.map { .folder($0) } + items.map { .bookmark($0) }
                 let cols = metrics.splitColumnWidths(horizontalPadding: horizontalPadding)
@@ -731,7 +750,7 @@ struct BrowserStartPageView: View {
     }
 
     private var favoritesHeader: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             if let folder = activeFolder {
                 Button {
                     withAnimation(.snappy(duration: 0.22)) {
@@ -816,26 +835,70 @@ struct BrowserStartPageView: View {
                 Text("Favorites")
                     .font(.headline)
                     .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
 
-                Spacer()
+                if browserStore.isMultiProfileEnabled && !session.isPrivate {
+                    let activeProfile = browserStore.activeProfile
+                    Menu {
+                        ProfileSwitcherMenuContent(browserStore: browserStore)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: activeProfile.symbolName)
+                                .symbolRenderingMode(.monochrome)
+                                .font(.caption2.weight(.semibold))
+                            Text(activeProfile.name)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .layoutPriority(-1)
+                            Image(systemName: "chevron.down")
+                                .symbolRenderingMode(.monochrome)
+                                .font(.system(size: 8.5, weight: .bold))
+                        }
+                        .foregroundStyle(tokens.accent)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color(.secondarySystemGroupedBackground), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Favorites Profile: \(activeProfile.name)")
+                    .accessibilityHint("Switch profile")
+                    .accessibilityIdentifier("startpage-profile-switcher")
+                }
+
+                Spacer(minLength: 4)
 
                 Button {
                     pendingBookmarkIDForNewFolder = nil
                     newFolderName = ""
                     isCreatingFolderAlert = true
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "folder.badge.plus")
+                    if !isWideCanvas && browserStore.isMultiProfileEnabled {
+                        Label("New Folder", systemImage: "folder.badge.plus")
                             .symbolRenderingMode(.monochrome)
-                        Text("New Folder")
+                            .labelStyle(.iconOnly)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 28)
+                            .background(Color(.secondarySystemGroupedBackground), in: Circle())
+                    } else {
+                        HStack(spacing: 4) {
+                            Image(systemName: "folder.badge.plus")
+                                .symbolRenderingMode(.monochrome)
+                            Text("New Folder")
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color(.secondarySystemGroupedBackground), in: Capsule())
                     }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color(.secondarySystemGroupedBackground), in: Capsule())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("New Folder")
 
                 Button {
                     editorTarget = .create(defaultFolderID: nil)
@@ -844,6 +907,8 @@ struct BrowserStartPageView: View {
                         Image(systemName: "plus")
                             .symbolRenderingMode(.monochrome)
                         Text("Add")
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(tokens.accent)

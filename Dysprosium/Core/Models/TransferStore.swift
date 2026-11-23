@@ -196,9 +196,9 @@ public actor TransferStore {
         ensureWALSidecarProtection(force: true)
     }
 
-    /// Scrubs `Cookie` and `Authorization` headers from every persisted transfer record in
-    /// `dysprosium_state.sqlite3` and truncates the WAL so no plaintext tokens remain on disk.
-    public func scrubStoredAuthHeaders() {
+    /// Scrubs `Cookie` and `Authorization` headers from persisted transfer records in
+    /// `dysprosium_state.sqlite3` (optionally scoped to `matchingProfileID`) and truncates the WAL.
+    public func scrubStoredAuthHeaders(matchingProfileID: String? = nil) {
         guard let db else { return }
         var updates: [(id: String, payload: Data)] = []
 
@@ -212,6 +212,15 @@ public actor TransferStore {
                 guard byteCount > 0, let rawPtr = sqlite3_column_blob(selectStmt, 1) else { continue }
                 let data = Data(bytes: rawPtr, count: byteCount)
                 guard let job = try? decoder.decode(TransferJob.self, from: data) else { continue }
+                if let matchingProfileID {
+                    let belongsToTarget: Bool
+                    if matchingProfileID == BrowserProfile.defaultID {
+                        belongsToTarget = (job.sourceProfileID == nil || job.sourceProfileID == matchingProfileID)
+                    } else {
+                        belongsToTarget = (job.sourceProfileID == matchingProfileID)
+                    }
+                    guard belongsToTarget else { continue }
+                }
                 let scrubbed = job.strippingAuthHeaders()
                 if scrubbed != job, let newData = try? encoder.encode(scrubbed) {
                     updates.append((idStr, newData))

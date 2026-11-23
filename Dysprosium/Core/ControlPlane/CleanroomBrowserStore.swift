@@ -405,21 +405,59 @@ public final class CleanroomBrowserStore {
     }
 
     public static let maxLiveWebViews = 4
+    public static let maxInactiveProfileLiveWebViews = 1
     public static let maxRecentlyClosedTabs = 15
 
+    public private(set) var profiles: [BrowserProfile] = [BrowserProfile.makeDefaultProfile()]
+    public private(set) var activeProfileID: String = BrowserProfile.defaultID
     public private(set) var tabs: [CleanroomWebKitSession] = []
     public var activeTabID: UUID
     public private(set) var bookmarks: [BrowserBookmark] = []
     public private(set) var favoriteFolders: [BrowserFavoriteFolder] = []
     public private(set) var siteRulesByHost: [String: SiteRuleRecord] = [:]
-    public private(set) var recentlyClosedTabs: [RecentlyClosedTab] = []
+    private var recentlyClosedTabsByProfile: [String: [RecentlyClosedTab]] = [:]
+    public var recentlyClosedTabs: [RecentlyClosedTab] {
+        recentlyClosedTabsByProfile[activeProfileID] ?? []
+    }
     public private(set) var totalHistoryCount: Int = 0
     public private(set) var historyRevision: Int = 0
     public private(set) var hasClipboardWebURL: Bool = false
     public private(set) var isHydrated: Bool = false
 
-    /// Optional callback invoked during Cookies & Sessions clear to scrub persisted transfer auth headers.
-    public var onScrubTransferAuthData: (@MainActor () async -> Void)?
+    public var activeProfile: BrowserProfile {
+        profiles.first(where: { $0.id == activeProfileID })
+            ?? profiles.first
+            ?? BrowserProfile.makeDefaultProfile()
+    }
+
+    public var isMultiProfileEnabled: Bool {
+        profiles.count >= 2
+    }
+
+    public var activeProfileTabs: [CleanroomWebKitSession] {
+        tabs.filter { !$0.isPrivate && $0.profileID == activeProfileID }
+    }
+
+    public var privateTabs: [CleanroomWebKitSession] {
+        tabs.filter(\.isPrivate)
+    }
+
+    public func tabs(forProfileID id: String) -> [CleanroomWebKitSession] {
+        tabs.filter { !$0.isPrivate && $0.profileID == id }
+    }
+
+    public func profile(for id: String?) -> BrowserProfile? {
+        guard let id else { return nil }
+        return profiles.first(where: { $0.id == id })
+    }
+
+    public func recentlyClosedTabs(forProfileID id: String) -> [RecentlyClosedTab] {
+        recentlyClosedTabsByProfile[id] ?? []
+    }
+
+    /// Optional callback invoked during Cookies & Sessions clear to scrub persisted transfer auth headers
+    /// scoped to the cleared profile ID (`nil` = all).
+    public var onScrubTransferAuthData: (@MainActor (String?) async -> Void)?
     /// Optional provider returning active transfer IDs so staging reclamation never deletes in-flight downloads.
     public var activeTransferIDsProvider: (@MainActor () -> Set<UUID>)?
     /// Optional predicate exempting tabs with an active download from LRU hibernation.
@@ -428,6 +466,9 @@ public final class CleanroomBrowserStore {
     nonisolated public static let autoWebPageDarkModeDefaultsKey = "dysprosium.browser.autoWebPageDarkMode"
     nonisolated public static let globalShieldEnabledDefaultsKey = "dysprosium.browser.globalShieldEnabled"
     nonisolated private static let palettePresetDefaultsKey = "dysprosium.design.palettePreset"
+    /// Stored strictly in host-local `UserDefaults.standard` so side-by-side LC 1 / LC 2 Split View instances
+    /// never yank each other onto a different profile on foreground.
+    nonisolated private static let activeProfileIDDefaultsKey = "dysprosium.browser.activeProfileID.v1"
 
     // MARK: - Shared App Group UserDefaults Helpers (with one-time legacy `.standard` fallback)
 
@@ -478,10 +519,21 @@ public final class CleanroomBrowserStore {
 
     public var userAgentProfile: BrowserUserAgentProfile {
         didSet {
-            guard oldValue != userAgentProfile else { return }
-            LiveContainerEnvironment.sharedDefaults.set(userAgentProfile.rawValue, forKey: BrowserUserAgentProfile.defaultsKey)
+            guard oldValue != userAgentProfile, !isSyncingProfilePreferences else { return }
+            let targetProfileID = activeProfileID
+            if let idx = profiles.firstIndex(where: { $0.id == targetProfileID }) {
+                profiles[idx].userAgentProfile = userAgentProfile
+                let updated = profiles[idx]
+                let db = sqliteStore
+                Task.detached(priority: .utility) {
+                    db.upsertProfile(updated)
+                }
+            }
+            if targetProfileID == BrowserProfile.defaultID {
+                LiveContainerEnvironment.sharedDefaults.set(userAgentProfile.rawValue, forKey: BrowserUserAgentProfile.defaultsKey)
+            }
             let activeID = activeTabID
-            for tab in tabs {
+            for tab in tabs where tab.profileID == targetProfileID || tab.isPrivate {
                 if tab.id == activeID {
                     tab.applyUserAgentProfile(userAgentProfile, reloadIfLoaded: true)
                 } else {
@@ -550,15 +602,37 @@ public final class CleanroomBrowserStore {
 
     public var searchEngine: BrowserSearchEngine {
         didSet {
-            guard oldValue != searchEngine else { return }
-            LiveContainerEnvironment.sharedDefaults.set(searchEngine.rawValue, forKey: BrowserSearchEngine.defaultsKey)
+            guard oldValue != searchEngine, !isSyncingProfilePreferences else { return }
+            let targetProfileID = activeProfileID
+            if let idx = profiles.firstIndex(where: { $0.id == targetProfileID }) {
+                profiles[idx].searchEngine = searchEngine
+                let updated = profiles[idx]
+                let db = sqliteStore
+                Task.detached(priority: .utility) {
+                    db.upsertProfile(updated)
+                }
+            }
+            if targetProfileID == BrowserProfile.defaultID {
+                LiveContainerEnvironment.sharedDefaults.set(searchEngine.rawValue, forKey: BrowserSearchEngine.defaultsKey)
+            }
         }
     }
 
     public var customSearchTemplate: String {
         didSet {
-            guard oldValue != customSearchTemplate else { return }
-            LiveContainerEnvironment.sharedDefaults.set(customSearchTemplate, forKey: BrowserSearchEngine.customTemplateDefaultsKey)
+            guard oldValue != customSearchTemplate, !isSyncingProfilePreferences else { return }
+            let targetProfileID = activeProfileID
+            if let idx = profiles.firstIndex(where: { $0.id == targetProfileID }) {
+                profiles[idx].customSearchTemplate = customSearchTemplate
+                let updated = profiles[idx]
+                let db = sqliteStore
+                Task.detached(priority: .utility) {
+                    db.upsertProfile(updated)
+                }
+            }
+            if targetProfileID == BrowserProfile.defaultID {
+                LiveContainerEnvironment.sharedDefaults.set(customSearchTemplate, forKey: BrowserSearchEngine.customTemplateDefaultsKey)
+            }
         }
     }
 
@@ -592,22 +666,37 @@ public final class CleanroomBrowserStore {
     private var lastHandledPasteboardChangeCount: Int = -1
     private var lastObservedDataVersion: Int64 = 0
     private var tabActivationLRU: [UUID] = []
+    private var lastActiveTabIDByProfile: [String: UUID] = [:]
     private var parentTabIDByChildID: [UUID: UUID] = [:]
     private var sharedPrivateWebsiteDataStore: WKWebsiteDataStore?
+    private let dataStoreRegistry = ProfileWebsiteDataStoreRegistry()
+    private var isSyncingProfilePreferences: Bool = false
     private var lifecycleObserverTokens: [NSObjectProtocol] = []
-    private var pendingTabsPersistTask: Task<Void, Never>?
+    private var pendingTabsPersistTasksByProfile: [String: Task<Void, Never>] = [:]
+    private var pendingOpenTabsSnapshotsByProfile: [String: [PersistedOpenTab]] = [:]
+    private var pendingProfileUpsertTasks: [String: Task<Void, Never>] = [:]
+    private var pendingProfileUpserts: [String: BrowserProfile] = [:]
     private var initialHydrationTask: Task<Void, Never>?
+    private var lazyOrphanGCTask: Task<Void, Never>?
     private var bookmarksByFolderIndex: [String?: [BrowserBookmark]] = [:]
+    private var bookmarkCountsByProfileID: [String: Int] = [:]
+    private var siteRulesByProfileID: [String: [String: SiteRuleRecord]] = [:]
+    /// Ephemeral per-site rules for Private Browsing tabs — never written to `browser.sqlite3`
+    /// and purged immediately when the last Private tab closes.
+    public private(set) var privateSiteRulesByHost: [String: SiteRuleRecord] = [:]
     public let sqliteStore: BrowserSQLiteStore
     /// Alias preserving clean read-site ergonomics for history queries.
     public var historyStore: BrowserSQLiteStore { sqliteStore }
 
     private struct SQLiteHydrationSnapshot: Sendable {
+        let profiles: [BrowserProfile]
+        let resolvedActiveProfileID: String
         let folders: [BrowserFavoriteFolder]
         let bookmarks: [BrowserBookmark]
+        let bookmarkCountsByProfile: [String: Int]
         let totalHistoryCount: Int
         let openTabs: [PersistedOpenTab]
-        let siteRules: [SiteRuleRecord]
+        let siteRulesByProfile: [String: [SiteRuleRecord]]
         let dataVersion: Int64
     }
 
@@ -619,6 +708,10 @@ public final class CleanroomBrowserStore {
         // Defer SQLite open & bootstrap maintenance off `@MainActor` so cold launch never stalls the UI thread.
         let dbStore = BrowserSQLiteStore(stateDirectory: dir, deferOpen: true)
         self.sqliteStore = dbStore
+        let preferredHostProfileID = (customStateDirectory == nil)
+            ? (UserDefaults.standard.string(forKey: Self.activeProfileIDDefaultsKey) ?? BrowserProfile.defaultID)
+            : BrowserProfile.defaultID
+        self.activeProfileID = preferredHostProfileID
         self.userAgentProfile = BrowserUserAgentProfile.persistedCurrent
         let persistedMode = DarkReaderEngine.shared.modeBehavior
         self.webDarkModeBehavior = persistedMode
@@ -634,17 +727,28 @@ public final class CleanroomBrowserStore {
         let initialID = UUID()
         self.activeTabID = initialID
         self.tabActivationLRU = [initialID]
-        self.tabs = [makeSession(id: initialID, isPrivate: false)]
+        self.tabs = [makeSession(id: initialID, isPrivate: false, profileID: preferredHostProfileID)]
 
         self.initialHydrationTask = Task { @MainActor [weak self] in
             let snapshot = await Task.detached(priority: .userInitiated) {
                 dbStore.performDeferredBootstrapIfNeeded()
+                let loadedProfiles = dbStore.loadProfiles()
+                let resolvedID = loadedProfiles.contains(where: { $0.id == preferredHostProfileID })
+                    ? preferredHostProfileID
+                    : (loadedProfiles.first(where: \.isDefault)?.id ?? BrowserProfile.defaultID)
+                var allRules: [String: [SiteRuleRecord]] = [:]
+                for p in loadedProfiles {
+                    allRules[p.id] = dbStore.loadAllSiteRules(profileID: p.id)
+                }
                 return SQLiteHydrationSnapshot(
-                    folders: dbStore.loadFolders(),
-                    bookmarks: dbStore.loadBookmarks(),
-                    totalHistoryCount: dbStore.totalCount(),
-                    openTabs: dbStore.loadOpenTabs(),
-                    siteRules: dbStore.loadAllSiteRules(),
+                    profiles: loadedProfiles,
+                    resolvedActiveProfileID: resolvedID,
+                    folders: dbStore.loadFolders(profileID: resolvedID),
+                    bookmarks: dbStore.loadBookmarks(profileID: resolvedID),
+                    bookmarkCountsByProfile: dbStore.bookmarkCountsByProfile(),
+                    totalHistoryCount: dbStore.totalCount(profileID: resolvedID),
+                    openTabs: dbStore.loadOpenTabs(profileID: nil),
+                    siteRulesByProfile: allRules,
                     dataVersion: dbStore.dataVersion()
                 )
             }.value
@@ -660,9 +764,7 @@ public final class CleanroomBrowserStore {
                     let activeID = self.activeTabID
                     for tab in self.tabs where tab.id != activeID {
                         tab.purgePreviewSnapshotForMemoryRelief()
-                        if !tab.isExemptFromHibernation {
-                            tab.setMediaPlaybackSuspended(true)
-                        }
+                        tab.setMediaPlaybackSuspended(true)
                     }
                     self.enforceLiveWebViewBudget(aggressive: true)
                     DarkReaderEngine.shared.purgeMemoryCache()
@@ -673,10 +775,7 @@ public final class CleanroomBrowserStore {
         lifecycleObserverTokens.append(
             nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    SystemProxyBridge.sync(dataStore: .default())
-                    if let privateStore = self?.sharedPrivateWebsiteDataStore {
-                        SystemProxyBridge.sync(dataStore: privateStore)
-                    }
+                    SystemProxyBridge.syncAllTrackedDataStores()
                     self?.refreshFromSharedStoreIfChanged()
                 }
             }
@@ -684,11 +783,19 @@ public final class CleanroomBrowserStore {
         let dbForFlush = self.sqliteStore
         for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
             lifecycleObserverTokens.append(
-                nc.addObserver(forName: name, object: nil, queue: .main) { _ in
+                nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated {
+                        let pendingTabs = self?.drainPendingOpenTabsSnapshots() ?? [:]
+                        let pendingProfiles = self?.drainPendingProfileUpserts() ?? []
                         let bgGuard = BrowserBackgroundTaskGuard()
                         bgGuard.begin(name: "DysprosiumBrowserSQLiteFlush")
                         Task.detached(priority: .utility) {
+                            for profile in pendingProfiles {
+                                dbForFlush.upsertProfile(profile, checkpoint: false)
+                            }
+                            for (pid, records) in pendingTabs {
+                                dbForFlush.saveOpenTabs(records, forProfileID: pid)
+                            }
                             dbForFlush.flushForBackground()
                             await bgGuard.end()
                         }
@@ -700,10 +807,36 @@ public final class CleanroomBrowserStore {
 
     isolated deinit {
         initialHydrationTask?.cancel()
-        pendingTabsPersistTask?.cancel()
+        lazyOrphanGCTask?.cancel()
+        for task in pendingTabsPersistTasksByProfile.values {
+            task.cancel()
+        }
+        for task in pendingProfileUpsertTasks.values {
+            task.cancel()
+        }
         for token in lifecycleObserverTokens {
             NotificationCenter.default.removeObserver(token)
         }
+    }
+
+    private func drainPendingOpenTabsSnapshots() -> [String: [PersistedOpenTab]] {
+        for task in pendingTabsPersistTasksByProfile.values {
+            task.cancel()
+        }
+        pendingTabsPersistTasksByProfile.removeAll()
+        let snapshot = pendingOpenTabsSnapshotsByProfile
+        pendingOpenTabsSnapshotsByProfile.removeAll()
+        return snapshot
+    }
+
+    private func drainPendingProfileUpserts() -> [BrowserProfile] {
+        for task in pendingProfileUpsertTasks.values {
+            task.cancel()
+        }
+        pendingProfileUpsertTasks.removeAll()
+        let pending = Array(pendingProfileUpserts.values)
+        pendingProfileUpserts.removeAll()
+        return pending
     }
 
     /// Awaits completion of the off-main cold-launch SQLite bootstrap hydration.
@@ -712,42 +845,76 @@ public final class CleanroomBrowserStore {
     }
 
     private func applyInitialHydration(_ snapshot: SQLiteHydrationSnapshot) {
+        // Legacy global bypassed-host defaults have now been migrated into Default Profile `site_rules`.
+        CleanroomContentBlocker.shared.clearLegacyBypassedHosts()
+        DarkReaderEngine.shared.clearLegacyBypassedHosts()
+
+        self.profiles = snapshot.profiles
+        let resolvedProfileID = snapshot.resolvedActiveProfileID
+        self.activeProfileID = resolvedProfileID
+        if let defaultProfile = snapshot.profiles.first(where: \.isDefault) {
+            FingerprintShieldEngine.shared.syncStandardSeed(defaultProfile.fingerprintSeed)
+        }
+        syncPreferencesFromActiveProfile(updateThemeStore: true)
+
         self.favoriteFolders = snapshot.folders
         self.bookmarks = snapshot.bookmarks
+        self.bookmarkCountsByProfileID = snapshot.bookmarkCountsByProfile
+        self.bookmarkCountsByProfileID[resolvedProfileID] = snapshot.bookmarks.count
         self.totalHistoryCount = snapshot.totalHistoryCount
         self.lastObservedDataVersion = snapshot.dataVersion
-        self.siteRulesByHost = Dictionary(
-            uniqueKeysWithValues: snapshot.siteRules.map {
-                (LiveContainerEnvironment.HostNormalizer.normalize($0.host), $0)
-            }
-        )
+        self.siteRulesByProfileID = snapshot.siteRulesByProfile.mapValues { rules in
+            Dictionary(
+                uniqueKeysWithValues: rules.map {
+                    (LiveContainerEnvironment.HostNormalizer.normalize($0.host), $0)
+                }
+            )
+        }
+        self.siteRulesByHost = self.siteRulesByProfileID[resolvedProfileID] ?? [:]
         self.rebuildBookmarksFolderIndex()
 
-        if !snapshot.openTabs.isEmpty {
+        let validProfileIDs = Set(snapshot.profiles.map(\.id))
+        let persistedTabs = snapshot.openTabs.filter { validProfileIDs.contains($0.profileID) }
+
+        if !persistedTabs.isEmpty {
             let userAlreadyInteracted = tabs.count > 1
                 || activeSession.isLoading
                 || !activeSession.currentURLString.isEmpty
 
             if !userAlreadyInteracted {
+                for preTab in tabs {
+                    preTab.teardown()
+                }
                 var builtTabs: [CleanroomWebKitSession] = []
-                var chosenActiveID: UUID?
-                for rec in snapshot.openTabs {
-                    let session = makeSession(id: rec.id, isPrivate: false)
+                var chosenActiveForActiveProfile: UUID?
+                for rec in persistedTabs {
+                    let session = makeSession(id: rec.id, isPrivate: false, profileID: rec.profileID)
                     builtTabs.append(session)
                     if rec.isActive {
-                        chosenActiveID = session.id
+                        lastActiveTabIDByProfile[rec.profileID] = session.id
+                        if rec.profileID == resolvedProfileID {
+                            chosenActiveForActiveProfile = session.id
+                        }
                     }
                 }
-                let targetActiveID = chosenActiveID ?? builtTabs[0].id
+                if !builtTabs.contains(where: { $0.profileID == resolvedProfileID }) {
+                    let fresh = makeSession(id: UUID(), isPrivate: false, profileID: resolvedProfileID)
+                    builtTabs.append(fresh)
+                    chosenActiveForActiveProfile = fresh.id
+                }
+                let targetActiveID = chosenActiveForActiveProfile
+                    ?? builtTabs.first(where: { $0.profileID == resolvedProfileID })?.id
+                    ?? builtTabs[0].id
                 self.tabs = builtTabs
                 self.activeTabID = targetActiveID
+                self.lastActiveTabIDByProfile[resolvedProfileID] = targetActiveID
                 self.tabActivationLRU = builtTabs.map(\.id).filter { $0 != targetActiveID } + [targetActiveID]
 
-                for (idx, session) in builtTabs.enumerated() {
-                    let saved = snapshot.openTabs[idx]
+                for (idx, session) in builtTabs.enumerated() where idx < persistedTabs.count {
+                    let saved = persistedTabs[idx]
                     if !saved.urlString.isEmpty {
                         if session.id == targetActiveID {
-                            // Hydrate ONLY the active tab at cold launch; all other tabs stay dormant with zero WKWebView.
+                            // Hydrate ONLY the active profile's active tab at cold launch.
                             session.load(urlString: saved.urlString)
                         } else {
                             session.stageDeferredRestore(urlString: saved.urlString, title: saved.title)
@@ -755,19 +922,78 @@ public final class CleanroomBrowserStore {
                     }
                 }
             } else {
+                // If the pre-hydration tab on a secondary profile already materialized a fallback
+                // `.nonPersistent()` WebView before `profiles` loaded, rebuild it against the real store.
+                if let first = tabs.first,
+                   !first.isPrivate,
+                   let pid = first.profileID,
+                   pid != BrowserProfile.defaultID,
+                   first.hasLiveWebView {
+                    let pendingURL = first.currentURLString
+                    let rebuilt = makeSession(id: first.id, isPrivate: false, profileID: pid)
+                    first.teardown()
+                    tabs[0] = rebuilt
+                    if !pendingURL.isEmpty {
+                        rebuilt.load(urlString: pendingURL)
+                    }
+                }
                 // Preserve the tab the user already started using; append persisted tabs dormantly.
                 let existingIDs = Set(tabs.map(\.id))
-                for saved in snapshot.openTabs where !existingIDs.contains(saved.id) && !saved.urlString.isEmpty {
-                    let session = makeSession(id: saved.id, isPrivate: false)
+                for saved in persistedTabs where !existingIDs.contains(saved.id) && !saved.urlString.isEmpty {
+                    let session = makeSession(id: saved.id, isPrivate: false, profileID: saved.profileID)
                     session.stageDeferredRestore(urlString: saved.urlString, title: saved.title)
                     tabs.append(session)
                     tabActivationLRU.insert(session.id, at: 0)
                 }
             }
+        } else if tabs.first?.profileID != resolvedProfileID
+                    || (resolvedProfileID != BrowserProfile.defaultID && tabs.first?.hasLiveWebView == true) {
+            let pendingURL = tabs.first?.currentURLString ?? ""
+            for preTab in tabs {
+                preTab.teardown()
+            }
+            let fresh = makeSession(id: UUID(), isPrivate: false, profileID: resolvedProfileID)
+            self.tabs = [fresh]
+            self.activeTabID = fresh.id
+            self.tabActivationLRU = [fresh.id]
+            self.lastActiveTabIDByProfile[resolvedProfileID] = fresh.id
+            if !pendingURL.isEmpty {
+                fresh.load(urlString: pendingURL)
+            }
         }
 
         self.isHydrated = true
         self.historyRevision &+= 1
+        scheduleLazyOrphanStoreGC()
+    }
+
+    private func scheduleLazyOrphanStoreGC() {
+        lazyOrphanGCTask?.cancel()
+        let activeUUIDs = Set(profiles.compactMap(\.webkitStoreID))
+        lazyOrphanGCTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, !Task.isCancelled else { return }
+            await self.dataStoreRegistry.collectOrphanedStores(keeping: activeUUIDs)
+        }
+    }
+
+    private func syncPreferencesFromActiveProfile(updateThemeStore: Bool) {
+        let current = activeProfile
+        isSyncingProfilePreferences = true
+        if userAgentProfile != current.userAgentProfile {
+            userAgentProfile = current.userAgentProfile
+        }
+        if searchEngine != current.searchEngine {
+            searchEngine = current.searchEngine
+        }
+        if customSearchTemplate != current.customSearchTemplate {
+            customSearchTemplate = current.customSearchTemplate
+        }
+        isSyncingProfilePreferences = false
+
+        if updateThemeStore && DysprosiumThemeStore.shared.selectedPreset != current.palettePreset {
+            DysprosiumThemeStore.shared.select(current.palettePreset)
+        }
     }
 
     /// Checks `PRAGMA data_version` off `@MainActor` on `willEnterForeground` and refreshes shared state
@@ -775,15 +1001,14 @@ public final class CleanroomBrowserStore {
     public func refreshFromSharedStoreIfChanged() {
         let db = sqliteStore
         let previousVersion = lastObservedDataVersion
+        let currentHostProfileID = activeProfileID
         Task { @MainActor [weak self] in
             let currentVersion = await Task.detached(priority: .utility) {
                 db.dataVersion()
             }.value
             guard let self else { return }
 
-            // Refresh lightweight shared UserDefaults preferences regardless of DB version.
-            let latestUA = BrowserUserAgentProfile.persistedCurrent
-            if self.userAgentProfile != latestUA { self.userAgentProfile = latestUA }
+            // Refresh global engine preferences regardless of DB version.
             DarkReaderEngine.shared.refreshPersistedPreferences()
             let latestDarkMode = DarkReaderEngine.shared.modeBehavior
             if self.webDarkModeBehavior != latestDarkMode { self.webDarkModeBehavior = latestDarkMode }
@@ -793,38 +1018,463 @@ public final class CleanroomBrowserStore {
             if self.autoWebPageDarkMode != latestDark { self.autoWebPageDarkMode = latestDark }
             let latestShield = Self.persistedGlobalShieldEnabled
             if self.isShieldEnabled != latestShield { self.isShieldEnabled = latestShield }
-            let latestSearch = BrowserSearchEngine.persistedCurrent
-            if self.searchEngine != latestSearch { self.searchEngine = latestSearch }
-            let latestTemplate = BrowserSearchEngine.persistedCustomTemplate
-            if self.customSearchTemplate != latestTemplate { self.customSearchTemplate = latestTemplate }
             let latestPDFAppearance = PDFAppearanceMode.persistedCurrent
             if self.pdfAppearanceMode != latestPDFAppearance { self.pdfAppearanceMode = latestPDFAppearance }
             let latestPDFLayout = PDFDisplayLayoutMode.persistedCurrent
             if self.pdfDisplayLayoutMode != latestPDFLayout { self.pdfDisplayLayoutMode = latestPDFLayout }
-            Self.migratePalettePresetToSharedDefaultsIfNeeded()
 
             guard currentVersion != previousVersion else { return }
-            let refreshed = await Task.detached(priority: .utility) {
-                (
-                    folders: db.loadFolders(),
-                    bookmarks: db.loadBookmarks(),
-                    totalHistory: db.totalCount(),
-                    siteRules: db.loadAllSiteRules(),
+            let previousProfilesByID = Dictionary(uniqueKeysWithValues: self.profiles.map { ($0.id, $0) })
+            let refreshed = await Task.detached(priority: .utility) { () -> (
+                profiles: [BrowserProfile],
+                resolvedProfileID: String,
+                folders: [BrowserFavoriteFolder],
+                bookmarks: [BrowserBookmark],
+                bookmarkCounts: [String: Int],
+                totalHistory: Int,
+                siteRulesByProfile: [String: [SiteRuleRecord]],
+                openTabs: [PersistedOpenTab],
+                version: Int64
+            ) in
+                let latestProfiles = db.loadProfiles()
+                let resolvedID = latestProfiles.contains(where: { $0.id == currentHostProfileID })
+                    ? currentHostProfileID
+                    : (latestProfiles.first(where: \.isDefault)?.id ?? BrowserProfile.defaultID)
+                var allRules: [String: [SiteRuleRecord]] = [:]
+                for p in latestProfiles {
+                    allRules[p.id] = db.loadAllSiteRules(profileID: p.id)
+                }
+                return (
+                    profiles: latestProfiles,
+                    resolvedProfileID: resolvedID,
+                    folders: db.loadFolders(profileID: resolvedID),
+                    bookmarks: db.loadBookmarks(profileID: resolvedID),
+                    bookmarkCounts: db.bookmarkCountsByProfile(),
+                    totalHistory: db.totalCount(profileID: resolvedID),
+                    siteRulesByProfile: allRules,
+                    openTabs: db.loadOpenTabs(profileID: nil),
                     version: db.dataVersion()
                 )
             }.value
+            let removedProfileIDs = Set(self.profiles.map(\.id)).subtracting(Set(refreshed.profiles.map(\.id)))
+            self.profiles = refreshed.profiles
+            if let defaultProfile = refreshed.profiles.first(where: \.isDefault) {
+                FingerprintShieldEngine.shared.syncStandardSeed(defaultProfile.fingerprintSeed)
+            }
+            if self.activeProfileID != refreshed.resolvedProfileID {
+                self.activeProfileID = refreshed.resolvedProfileID
+                UserDefaults.standard.set(refreshed.resolvedProfileID, forKey: Self.activeProfileIDDefaultsKey)
+            }
+            self.syncPreferencesFromActiveProfile(updateThemeStore: true)
+
+            if !removedProfileIDs.isEmpty {
+                for victim in self.tabs where victim.profileID.map({ removedProfileIDs.contains($0) }) == true {
+                    victim.teardown()
+                    self.tabActivationLRU.removeAll { $0 == victim.id }
+                }
+                self.tabs.removeAll { $0.profileID.map({ removedProfileIDs.contains($0) }) == true }
+                for deadID in removedProfileIDs {
+                    self.recentlyClosedTabsByProfile.removeValue(forKey: deadID)
+                    self.lastActiveTabIDByProfile.removeValue(forKey: deadID)
+                    self.bookmarkCountsByProfileID.removeValue(forKey: deadID)
+                    self.siteRulesByProfileID.removeValue(forKey: deadID)
+                }
+                if !self.tabs.contains(where: { $0.id == self.activeTabID }) {
+                    let targetTab = self.ensureAtLeastOneTab(forProfileID: self.activeProfileID)
+                    self.activeTabID = targetTab.id
+                    self.touchTabLRU(targetTab.id)
+                    targetTab.hydrateDeferredURLIfNeeded()
+                    targetTab.syncDeferredSettingsIfNeeded(
+                        userAgentProfile: self.userAgentProfile,
+                        autoWebPageDarkMode: self.autoWebPageDarkMode
+                    )
+                }
+                let activeUUIDs = Set(self.profiles.compactMap(\.webkitStoreID))
+                Task { @MainActor [weak self] in
+                    await self?.dataStoreRegistry.collectOrphanedStores(keeping: activeUUIDs)
+                }
+            }
+
+            // Refresh dormant (unhydrated) profiles' `open_tabs` so switching profiles in Split View
+            // (`LC 1` / `LC 2`) reflects tabs opened in the sibling host rather than clobbering them.
+            let tabsByProfile = Dictionary(grouping: refreshed.openTabs, by: \.profileID)
+            for p in refreshed.profiles where p.id != self.activeProfileID {
+                let existingTabs = self.tabs.filter { !$0.isPrivate && $0.profileID == p.id }
+                let hasAnyLiveTab = existingTabs.contains { $0.hasLiveWebView || $0.isHibernated }
+                guard !hasAnyLiveTab, let remoteRecords = tabsByProfile[p.id], !remoteRecords.isEmpty else {
+                    continue
+                }
+                let existingIDs = existingTabs.map(\.id)
+                let remoteIDs = remoteRecords.map(\.id)
+                let existingURLs = existingTabs.map(\.currentURLString)
+                let remoteURLs = remoteRecords.map(\.urlString)
+                guard existingIDs != remoteIDs || existingURLs != remoteURLs else { continue }
+
+                for victim in existingTabs {
+                    victim.teardown()
+                    self.tabActivationLRU.removeAll { $0 == victim.id }
+                }
+                self.tabs.removeAll { !$0.isPrivate && $0.profileID == p.id }
+                for rec in remoteRecords {
+                    let session = self.makeSession(id: rec.id, isPrivate: false, profileID: p.id)
+                    if !rec.urlString.isEmpty {
+                        session.stageDeferredRestore(urlString: rec.urlString, title: rec.title)
+                    }
+                    self.tabs.append(session)
+                    self.tabActivationLRU.insert(session.id, at: 0)
+                    if rec.isActive {
+                        self.lastActiveTabIDByProfile[p.id] = session.id
+                    }
+                }
+            }
+
+            // Propagate remote UA / Fingerprint Seed edits made in a sibling LiveContainer host.
+            let activeID = self.activeTabID
+            for updated in refreshed.profiles {
+                guard let prev = previousProfilesByID[updated.id] else { continue }
+                if prev.userAgentProfile != updated.userAgentProfile {
+                    for tab in self.tabs where tab.profileID == updated.id {
+                        if tab.id == activeID {
+                            tab.applyUserAgentProfile(updated.userAgentProfile, reloadIfLoaded: true)
+                        } else {
+                            tab.markNeedsSettingsSyncOnActivate()
+                        }
+                    }
+                }
+                if prev.fingerprintSeed != updated.fingerprintSeed {
+                    for tab in self.tabs where tab.profileID == updated.id {
+                        tab.refreshCustomUserAgentForActivePersona()
+                    }
+                    let pid = updated.id
+                    Task { @MainActor in
+                        await CleanroomContentBlocker.shared.reapplyToAttachedControllers(matchingProfileID: pid)
+                    }
+                }
+            }
+
             self.favoriteFolders = refreshed.folders
             self.bookmarks = refreshed.bookmarks
+            self.bookmarkCountsByProfileID = refreshed.bookmarkCounts
+            self.bookmarkCountsByProfileID[self.activeProfileID] = refreshed.bookmarks.count
             self.totalHistoryCount = refreshed.totalHistory
-            self.siteRulesByHost = Dictionary(
-                uniqueKeysWithValues: refreshed.siteRules.map {
-                    (LiveContainerEnvironment.HostNormalizer.normalize($0.host), $0)
-                }
-            )
+            self.siteRulesByProfileID = refreshed.siteRulesByProfile.mapValues { rules in
+                Dictionary(
+                    uniqueKeysWithValues: rules.map {
+                        (LiveContainerEnvironment.HostNormalizer.normalize($0.host), $0)
+                    }
+                )
+            }
+            self.siteRulesByHost = self.siteRulesByProfileID[self.activeProfileID] ?? [:]
             self.lastObservedDataVersion = refreshed.version
             self.rebuildBookmarksFolderIndex()
             self.historyRevision &+= 1
         }
+    }
+
+    // MARK: - Multi-Profile Management & Zero-Restart Switching
+
+    public func switchToProfile(id targetProfileID: String, activateTab: Bool = true) {
+        guard profiles.contains(where: { $0.id == targetProfileID }) else { return }
+
+        let departing = activeSession
+        let departingProfileID = departing.profileID
+        if !departing.isPrivate, let departingProfileID {
+            lastActiveTabIDByProfile[departingProfileID] = departing.id
+        }
+
+        let needsProfileSwap = (activeProfileID != targetProfileID)
+        if needsProfileSwap {
+            applyActiveProfileMetadata(id: targetProfileID)
+        }
+
+        if activateTab {
+            let targetTab: CleanroomWebKitSession = {
+                if let rememberedID = lastActiveTabIDByProfile[targetProfileID],
+                   let existing = tabs.first(where: { $0.id == rememberedID && !$0.isPrivate && $0.profileID == targetProfileID }) {
+                    return existing
+                }
+                return ensureAtLeastOneTab(forProfileID: targetProfileID)
+            }()
+
+            if activeTabID != targetTab.id {
+                departing.capturePreviewSnapshot()
+                suspendDepartingTabIfNotPlaying(departing)
+                activeTabID = targetTab.id
+                touchTabLRU(targetTab.id)
+                lastActiveTabIDByProfile[targetProfileID] = targetTab.id
+                targetTab.setMediaPlaybackSuspended(false)
+                targetTab.hydrateDeferredURLIfNeeded()
+                targetTab.syncDeferredSettingsIfNeeded(
+                    userAgentProfile: userAgentProfile,
+                    autoWebPageDarkMode: autoWebPageDarkMode
+                )
+                enforceLiveWebViewBudget(aggressive: false)
+                persistOpenTabsSnapshot(forProfileID: targetProfileID)
+            }
+        }
+    }
+
+    private func applyActiveProfileMetadata(id targetProfileID: String) {
+        activeProfileID = targetProfileID
+        UserDefaults.standard.set(targetProfileID, forKey: Self.activeProfileIDDefaultsKey)
+        syncPreferencesFromActiveProfile(updateThemeStore: true)
+
+        favoriteFolders = sqliteStore.loadFolders(profileID: targetProfileID)
+        bookmarks = sqliteStore.loadBookmarks(profileID: targetProfileID)
+        bookmarkCountsByProfileID[targetProfileID] = bookmarks.count
+        totalHistoryCount = sqliteStore.totalCount(profileID: targetProfileID)
+        if let cachedRules = siteRulesByProfileID[targetProfileID] {
+            siteRulesByHost = cachedRules
+        } else {
+            let loaded = Dictionary(
+                uniqueKeysWithValues: sqliteStore.loadAllSiteRules(profileID: targetProfileID).map {
+                    (LiveContainerEnvironment.HostNormalizer.normalize($0.host), $0)
+                }
+            )
+            siteRulesByProfileID[targetProfileID] = loaded
+            siteRulesByHost = loaded
+        }
+        lastObservedDataVersion = sqliteStore.dataVersion()
+        rebuildBookmarksFolderIndex()
+        historyRevision &+= 1
+    }
+
+    private func ensureAtLeastOneTab(forProfileID profileID: String) -> CleanroomWebKitSession {
+        if let existing = tabs.last(where: { !$0.isPrivate && $0.profileID == profileID }) {
+            return existing
+        }
+        let fresh = makeSession(id: UUID(), isPrivate: false, profileID: profileID)
+        tabs.append(fresh)
+        tabActivationLRU.insert(fresh.id, at: 0)
+        return fresh
+    }
+
+    @discardableResult
+    public func createProfile(
+        name: String,
+        symbolName: String = "briefcase.fill",
+        palettePreset: DysprosiumPalettePreset? = nil,
+        userAgentProfile: BrowserUserAgentProfile = .iosSafari,
+        searchEngine: BrowserSearchEngine = .duckDuckGo,
+        customSearchTemplate: String = BrowserSearchEngine.defaultCustomTemplate,
+        copyFavoritesFromDefault: Bool = false,
+        activate: Bool = true
+    ) -> BrowserProfile? {
+        guard profiles.count < BrowserProfile.maxProfileCount else { return nil }
+        let existingSeeds = Set(profiles.map(\.fingerprintSeed))
+        let freshSeed = FingerprintShieldEngine.generateDistinctCryptographicSeed(
+            avoidingSeeds: existingSeeds,
+            profile: userAgentProfile
+        )
+        let chosenPalette: DysprosiumPalettePreset = {
+            if let palettePreset { return palettePreset }
+            let used = Set(profiles.map(\.palettePreset))
+            return DysprosiumPalettePreset.allCases.first(where: { !used.contains($0) }) ?? .ultramarine
+        }()
+        let nextOrder = (profiles.map(\.sortOrder).max() ?? 0) + 100.0
+        let created = BrowserProfile(
+            id: UUID().uuidString,
+            name: name,
+            symbolName: symbolName,
+            palettePreset: chosenPalette,
+            isDefault: false,
+            webkitStoreID: UUID(),
+            fingerprintSeed: freshSeed,
+            userAgentProfile: userAgentProfile,
+            searchEngine: searchEngine,
+            customSearchTemplate: customSearchTemplate,
+            sortOrder: nextOrder,
+            createdAt: Date()
+        )
+        sqliteStore.upsertProfile(created)
+        if copyFavoritesFromDefault {
+            sqliteStore.copyFavorites(fromProfileID: BrowserProfile.defaultID, toProfileID: created.id)
+        }
+        profiles = sqliteStore.loadProfiles()
+        bookmarkCountsByProfileID = sqliteStore.bookmarkCountsByProfile()
+        siteRulesByProfileID[created.id] = [:]
+        lastObservedDataVersion = sqliteStore.dataVersion()
+
+        if activate {
+            switchToProfile(id: created.id, activateTab: true)
+        }
+        return profiles.first(where: { $0.id == created.id }) ?? created
+    }
+
+    public func updateProfile(_ updated: BrowserProfile, debounced: Bool = false) {
+        guard let idx = profiles.firstIndex(where: { $0.id == updated.id }) else { return }
+        let previous = profiles[idx]
+        var mutableSanitized = updated
+        mutableSanitized.name = BrowserProfile.sanitizedName(updated.name, fallback: updated.isDefault ? "Personal" : "Profile")
+        let sanitized = mutableSanitized
+        profiles[idx] = sanitized
+
+        let db = sqliteStore
+        let pid = sanitized.id
+        pendingProfileUpsertTasks[pid]?.cancel()
+        if debounced {
+            pendingProfileUpserts[pid] = sanitized
+            pendingProfileUpsertTasks[pid] = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                self?.pendingProfileUpserts.removeValue(forKey: pid)
+                self?.pendingProfileUpsertTasks.removeValue(forKey: pid)
+                let ver = await Task.detached(priority: .utility) {
+                    db.upsertProfile(sanitized, checkpoint: false)
+                    return db.dataVersion()
+                }.value
+                self?.lastObservedDataVersion = ver
+            }
+        } else {
+            pendingProfileUpserts.removeValue(forKey: pid)
+            pendingProfileUpsertTasks.removeValue(forKey: pid)
+            Task.detached(priority: .utility) {
+                db.upsertProfile(sanitized, checkpoint: true)
+            }
+        }
+
+        if sanitized.isDefault {
+            FingerprintShieldEngine.shared.syncStandardSeed(sanitized.fingerprintSeed)
+            LiveContainerEnvironment.sharedDefaults.set(sanitized.userAgentProfile.rawValue, forKey: BrowserUserAgentProfile.defaultsKey)
+            LiveContainerEnvironment.sharedDefaults.set(sanitized.searchEngine.rawValue, forKey: BrowserSearchEngine.defaultsKey)
+            LiveContainerEnvironment.sharedDefaults.set(sanitized.customSearchTemplate, forKey: BrowserSearchEngine.customTemplateDefaultsKey)
+        }
+        if sanitized.id == activeProfileID {
+            syncPreferencesFromActiveProfile(updateThemeStore: true)
+        }
+        if previous.userAgentProfile != sanitized.userAgentProfile {
+            let activeID = activeTabID
+            for tab in tabs where tab.profileID == sanitized.id {
+                if tab.id == activeID {
+                    tab.applyUserAgentProfile(sanitized.userAgentProfile, reloadIfLoaded: true)
+                } else {
+                    tab.markNeedsSettingsSyncOnActivate()
+                }
+            }
+        }
+        if previous.fingerprintSeed != sanitized.fingerprintSeed {
+            for tab in tabs where tab.profileID == sanitized.id {
+                tab.refreshCustomUserAgentForActivePersona()
+            }
+            Task { @MainActor in
+                await CleanroomContentBlocker.shared.reapplyToAttachedControllers(matchingProfileID: sanitized.id)
+            }
+        }
+    }
+
+    public func setActiveProfilePalette(_ preset: DysprosiumPalettePreset) {
+        var current = activeProfile
+        if current.palettePreset != preset {
+            current.palettePreset = preset
+            updateProfile(current, debounced: true)
+        }
+        DysprosiumThemeStore.shared.select(preset)
+    }
+
+    /// Refreshes `WKWebView.customUserAgent` across all live persistent tabs whenever global
+    /// `FingerprintShieldEngine.shared.isEnabled` toggles so HTTP/Worker UA parity never drifts.
+    public func refreshLiveUserAgentsForFingerprintShieldToggle() {
+        for tab in tabs where !tab.isPrivate {
+            tab.refreshCustomUserAgentForActivePersona()
+        }
+    }
+
+    @discardableResult
+    public func rotateFingerprintSeed(forProfileID profileID: String) -> String {
+        guard let idx = profiles.firstIndex(where: { $0.id == profileID }) else {
+            return FingerprintShieldEngine.generateCryptographicSeed()
+        }
+        let target = profiles[idx]
+        let existingSeeds = Set(profiles.map(\.fingerprintSeed))
+        let fresh = FingerprintShieldEngine.generateDistinctCryptographicSeed(
+            avoidingSeeds: existingSeeds,
+            profile: target.userAgentProfile
+        )
+        profiles[idx].fingerprintSeed = fresh
+        let updated = profiles[idx]
+        sqliteStore.upsertProfile(updated)
+        lastObservedDataVersion = sqliteStore.dataVersion()
+        if updated.isDefault {
+            FingerprintShieldEngine.shared.syncStandardSeed(fresh)
+        }
+        for tab in tabs where !tab.isPrivate && tab.profileID == profileID {
+            tab.refreshCustomUserAgentForActivePersona()
+        }
+        Task { @MainActor in
+            await CleanroomContentBlocker.shared.reapplyToAttachedControllers(matchingProfileID: profileID)
+        }
+        return fresh
+    }
+
+    public func deleteProfile(id targetProfileID: String) async {
+        guard targetProfileID != BrowserProfile.defaultID,
+              let target = profiles.first(where: { $0.id == targetProfileID }) else {
+            return
+        }
+        let storeUUID = target.webkitStoreID
+
+        // Remove from `profiles` synchronously BEFORE any `await` to eliminate async reentrancy
+        // windows where UI actions could re-enter the doomed profile during teardown.
+        pendingProfileUpsertTasks[targetProfileID]?.cancel()
+        pendingProfileUpsertTasks.removeValue(forKey: targetProfileID)
+        pendingProfileUpserts.removeValue(forKey: targetProfileID)
+        pendingTabsPersistTasksByProfile[targetProfileID]?.cancel()
+        pendingTabsPersistTasksByProfile.removeValue(forKey: targetProfileID)
+        pendingOpenTabsSnapshotsByProfile.removeValue(forKey: targetProfileID)
+
+        if activeProfileID == targetProfileID || activeSession.profileID == targetProfileID {
+            switchToProfile(id: BrowserProfile.defaultID, activateTab: true)
+        }
+
+        profiles.removeAll { $0.id == targetProfileID }
+        bookmarkCountsByProfileID.removeValue(forKey: targetProfileID)
+        siteRulesByProfileID.removeValue(forKey: targetProfileID)
+
+        let victims = tabs.filter { !$0.isPrivate && $0.profileID == targetProfileID }
+        let victimIDs = Set(victims.map(\.id))
+        for tab in victims {
+            tab.teardown()
+            tabActivationLRU.removeAll { $0 == tab.id }
+            parentTabIDByChildID.removeValue(forKey: tab.id)
+        }
+        parentTabIDByChildID = parentTabIDByChildID.filter { !victimIDs.contains($0.value) }
+        tabs.removeAll { !$0.isPrivate && $0.profileID == targetProfileID }
+        recentlyClosedTabsByProfile.removeValue(forKey: targetProfileID)
+        lastActiveTabIDByProfile.removeValue(forKey: targetProfileID)
+
+        // Scrub any persisted download auth headers (`Cookie` / `Authorization`) attributed to this profile.
+        if let scrub = onScrubTransferAuthData {
+            await scrub(targetProfileID)
+        }
+
+        let db = sqliteStore
+        let updated = await Task.detached(priority: .userInitiated) { () -> ([BrowserProfile], [String: Int], Int64) in
+            db.deleteProfile(id: targetProfileID)
+            return (db.loadProfiles(), db.bookmarkCountsByProfile(), db.dataVersion())
+        }.value
+        profiles = updated.0
+        bookmarkCountsByProfileID = updated.1
+        bookmarkCountsByProfileID[activeProfileID] = bookmarks.count
+        lastObservedDataVersion = updated.2
+        historyRevision &+= 1
+
+        if let storeUUID {
+            await dataStoreRegistry.removeStore(forIdentifier: storeUUID)
+        }
+    }
+
+    public func bookmarkCount(forProfileID id: String) -> Int {
+        if id == activeProfileID {
+            return bookmarks.count
+        }
+        return bookmarkCountsByProfileID[id] ?? 0
+    }
+
+    public func historyCount(forProfileID id: String) -> Int {
+        if id == activeProfileID {
+            return totalHistoryCount
+        }
+        return sqliteStore.totalCount(profileID: id)
     }
 
     public var activeSession: CleanroomWebKitSession {
@@ -851,10 +1501,14 @@ public final class CleanroomBrowserStore {
     }
 
     private func discardSharedPrivateWebsiteDataStoreIfNoPrivateTabsRemain() {
-        guard !tabs.contains(where: \.isPrivate),
-              let store = sharedPrivateWebsiteDataStore else {
-            return
+        guard !tabs.contains(where: \.isPrivate) else { return }
+        privateSiteRulesByHost.removeAll(keepingCapacity: false)
+        if let scrub = onScrubTransferAuthData {
+            Task { @MainActor in
+                await scrub(BrowserProfile.privateTransferProfileID)
+            }
         }
+        guard let store = sharedPrivateWebsiteDataStore else { return }
         sharedPrivateWebsiteDataStore = nil
         Task { @MainActor in
             await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
@@ -866,20 +1520,66 @@ public final class CleanroomBrowserStore {
         tabActivationLRU.append(id)
     }
 
-    /// Hibernates oldest inactive `WKWebView`s when live WebViews exceed `maxLiveWebViews` (`4`) or `1` under memory pressure.
-    /// Always exempts the active tab, tabs with active media/PiP/fullscreen/camera/mic, tabs with active downloads,
-    /// and tabs running an active media probe or fingerprint audit.
+    /// Hibernates oldest inactive `WKWebView`s when live WebViews exceed `maxLiveWebViews` (`4`) or `1` under memory pressure,
+    /// AND caps idle live WebViews across inactive profiles to `<= 1` (`0` under memory pressure) so toggling back
+    /// between your two most recent profiles (`Personal ↔ Work`) is instant while 3–6 profiles never multiply WebContent RAM.
+    /// Always exempts the active tab, tabs with active downloads, and active-profile tabs with live media/PiP/fullscreen/camera/mic.
     public func enforceLiveWebViewBudget(aggressive: Bool = false) {
-        let budget = aggressive ? 1 : Self.maxLiveWebViews
-        var currentLiveCount = liveWebViewCount
-        guard currentLiveCount > budget else { return }
-
         let tabByID = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        let protectedParentIDs = Set(parentTabIDByChildID.values)
-        // Build oldest-first eviction order from LRU, including any tab missing from LRU first.
+        // Drop permanent `window.open` opener protection under memory pressure so old openers cannot defeat Jetsam relief.
+        let protectedParentIDs: Set<UUID> = aggressive ? [] : Set(parentTabIDByChildID.values)
         let lruSet = Set(tabActivationLRU)
         let missingFromLRU = tabs.map(\.id).filter { !lruSet.contains($0) }
         let orderedCandidates = missingFromLRU + tabActivationLRU
+
+        let activeTab = activeSession
+        let activeBucketIsPrivate = activeTab.isPrivate
+        let activeBucketProfileID = activeTab.profileID
+
+        func isHibernationExempt(_ tab: CleanroomWebKitSession, isInactiveProfile: Bool) -> Bool {
+            if hasActiveDownloadForTab?(tab.id) == true || tab.hasActiveWKDownload || tab.hasActiveDownload {
+                return true
+            }
+            if aggressive || isInactiveProfile {
+                // Under memory pressure or across inactive profiles, do not let latched autoplay `.playing`
+                // block reclamation; only protect active fullscreen / camera / microphone / PiP capture.
+                if let wv = tab.liveWebViewIfLoaded,
+                   (wv.fullscreenState != .notInFullscreen || wv.cameraCaptureState != .none || wv.microphoneCaptureState != .none) {
+                    return true
+                }
+                return false
+            }
+            return tab.isExemptFromHibernation
+        }
+
+        // Pass 1: Enforce inactive-profile idle live WebView cap (`<= 1` normal, `0` aggressive).
+        let inactiveProfileCap = aggressive ? 0 : Self.maxInactiveProfileLiveWebViews
+        var inactiveProfileLiveCount = tabs.reduce(0) { acc, tab in
+            let sameBucket = (tab.isPrivate == activeBucketIsPrivate && tab.profileID == activeBucketProfileID)
+            return acc + ((!sameBucket && tab.hasLiveWebView) ? 1 : 0)
+        }
+        if inactiveProfileLiveCount > inactiveProfileCap {
+            for candidateID in orderedCandidates {
+                guard inactiveProfileLiveCount > inactiveProfileCap else { break }
+                guard candidateID != activeTabID,
+                      let candidate = tabByID[candidateID],
+                      candidate.hasLiveWebView else {
+                    continue
+                }
+                let sameBucket = (candidate.isPrivate == activeBucketIsPrivate && candidate.profileID == activeBucketProfileID)
+                guard !sameBucket else { continue }
+                if isHibernationExempt(candidate, isInactiveProfile: true) {
+                    continue
+                }
+                candidate.hibernateWebView()
+                inactiveProfileLiveCount -= 1
+            }
+        }
+
+        // Pass 2: Enforce global live WebView cap across all profiles + Private combined.
+        let budget = aggressive ? 1 : Self.maxLiveWebViews
+        var currentLiveCount = liveWebViewCount
+        guard currentLiveCount > budget else { return }
 
         for candidateID in orderedCandidates {
             guard currentLiveCount > budget else { break }
@@ -889,7 +1589,8 @@ public final class CleanroomBrowserStore {
                   candidate.hasLiveWebView else {
                 continue
             }
-            if candidate.isExemptFromHibernation || (hasActiveDownloadForTab?(candidateID) == true) {
+            let sameBucket = (candidate.isPrivate == activeBucketIsPrivate && candidate.profileID == activeBucketProfileID)
+            if isHibernationExempt(candidate, isInactiveProfile: !sameBucket) {
                 continue
             }
             candidate.hibernateWebView()
@@ -905,14 +1606,29 @@ public final class CleanroomBrowserStore {
     // MARK: - Multi-Tab Lifecycle, Recently Closed Tabs & Session Persistence
 
     @discardableResult
-    public func openNewTab(urlString: String? = nil, isPrivate: Bool = false, activate: Bool = true) -> CleanroomWebKitSession {
+    public func openNewTab(
+        urlString: String? = nil,
+        isPrivate: Bool = false,
+        activate: Bool = true,
+        profileID: String? = nil
+    ) -> CleanroomWebKitSession {
         let departing = activeSession
-        let session = makeSession(id: UUID(), isPrivate: isPrivate)
+        let targetProfileID: String? = isPrivate ? nil : (profileID ?? activeProfileID)
+        let session = makeSession(id: UUID(), isPrivate: isPrivate, profileID: targetProfileID)
         tabs.append(session)
         if activate {
             departing.capturePreviewSnapshot()
             suspendDepartingTabIfNotPlaying(departing)
+            if !departing.isPrivate, let departingPID = departing.profileID {
+                lastActiveTabIDByProfile[departingPID] = departing.id
+            }
+            if !isPrivate, let targetProfileID, targetProfileID != activeProfileID {
+                applyActiveProfileMetadata(id: targetProfileID)
+            }
             activeTabID = session.id
+            if let targetProfileID {
+                lastActiveTabIDByProfile[targetProfileID] = session.id
+            }
             touchTabLRU(session.id)
             session.setMediaPlaybackSuspended(false)
         } else {
@@ -927,7 +1643,9 @@ public final class CleanroomBrowserStore {
             }
         }
         enforceLiveWebViewBudget(aggressive: false)
-        persistOpenTabsSnapshot()
+        if let targetProfileID {
+            persistOpenTabsSnapshot(forProfileID: targetProfileID)
+        }
         return session
     }
 
@@ -936,27 +1654,39 @@ public final class CleanroomBrowserStore {
     public func openChildTab(
         configuration: WKWebViewConfiguration,
         initialURL: URL?,
-        isPrivate: Bool
+        isPrivate: Bool,
+        profileID: String? = nil,
+        openerTabID: UUID? = nil
     ) -> WKWebView {
         let departing = activeSession
-        let child = makeSession(id: UUID(), isPrivate: isPrivate)
+        let resolvedOpener = openerTabID.flatMap { id in tabs.first(where: { $0.id == id }) } ?? departing
+        let resolvedProfileID: String? = isPrivate ? nil : (profileID ?? resolvedOpener.profileID ?? activeProfileID)
+        let child = makeSession(id: UUID(), isPrivate: isPrivate, profileID: resolvedProfileID)
         let childWebView = child.attachChildWebView(using: configuration, initialURL: initialURL)
 
-        if let parentIdx = tabs.firstIndex(where: { $0.id == departing.id }) {
+        if let parentIdx = tabs.firstIndex(where: { $0.id == resolvedOpener.id }) {
             tabs.insert(child, at: parentIdx + 1)
         } else {
             tabs.append(child)
         }
-        parentTabIDByChildID[child.id] = departing.id
+        parentTabIDByChildID[child.id] = resolvedOpener.id
 
         departing.capturePreviewSnapshot()
         suspendDepartingTabIfNotPlaying(departing)
+        if !isPrivate, let resolvedProfileID, resolvedProfileID != activeProfileID {
+            applyActiveProfileMetadata(id: resolvedProfileID)
+        }
         activeTabID = child.id
+        if let resolvedProfileID {
+            lastActiveTabIDByProfile[resolvedProfileID] = child.id
+        }
         touchTabLRU(child.id)
         child.setMediaPlaybackSuspended(false)
 
         enforceLiveWebViewBudget(aggressive: false)
-        persistOpenTabsSnapshot()
+        if let resolvedProfileID {
+            persistOpenTabsSnapshot(forProfileID: resolvedProfileID)
+        }
         return childWebView
     }
 
@@ -966,6 +1696,15 @@ public final class CleanroomBrowserStore {
             let departing = activeSession
             departing.capturePreviewSnapshot()
             suspendDepartingTabIfNotPlaying(departing)
+            if !departing.isPrivate, let departingPID = departing.profileID {
+                lastActiveTabIDByProfile[departingPID] = departing.id
+            }
+        }
+        if !target.isPrivate, let targetPID = target.profileID {
+            if targetPID != activeProfileID {
+                applyActiveProfileMetadata(id: targetPID)
+            }
+            lastActiveTabIDByProfile[targetPID] = target.id
         }
         activeTabID = id
         touchTabLRU(id)
@@ -976,7 +1715,9 @@ public final class CleanroomBrowserStore {
             autoWebPageDarkMode: autoWebPageDarkMode
         )
         enforceLiveWebViewBudget(aggressive: false)
-        persistOpenTabsSnapshot()
+        if let targetPID = target.profileID {
+            persistOpenTabsSnapshot(forProfileID: targetPID)
+        }
     }
 
     /// Opens a local `.pdf` file (from Downloads Vault or iOS Files / Share Sheet) directly in a browser tab.
@@ -990,16 +1731,16 @@ public final class CleanroomBrowserStore {
     ) -> CleanroomWebKitSession {
         let standardizedPath = fileURL.standardizedFileURL.path
         if !copyIfExternalSecurityScoped,
-           let existing = tabs.first(where: { !$0.isPrivate && $0.activePDF?.localFileURL.standardizedFileURL.path == standardizedPath }) {
+           let existing = tabs.first(where: { !$0.isPrivate && $0.profileID == activeProfileID && $0.activePDF?.localFileURL.standardizedFileURL.path == standardizedPath }) {
             switchToTab(id: existing.id)
             return existing
         }
 
         let targetSession: CleanroomWebKitSession
-        if !activeSession.isPrivate && activeSession.currentURLString.isEmpty && !activeSession.isLoading && activeSession.activePDF == nil {
+        if !activeSession.isPrivate && activeSession.profileID == activeProfileID && activeSession.currentURLString.isEmpty && !activeSession.isLoading && activeSession.activePDF == nil {
             targetSession = activeSession
         } else {
-            targetSession = openNewTab(urlString: nil, isPrivate: false, activate: true)
+            targetSession = openNewTab(urlString: nil, isPrivate: false, activate: true, profileID: activeProfileID)
         }
 
         if copyIfExternalSecurityScoped {
@@ -1039,7 +1780,8 @@ public final class CleanroomBrowserStore {
     public func switchToAdjacentTab(delta: Int) {
         guard delta != 0 else { return }
         let scopeIsPrivate = activeSession.isPrivate
-        let scopedTabs = tabs.filter { $0.isPrivate == scopeIsPrivate }
+        let scopeProfileID = activeSession.profileID
+        let scopedTabs = tabs.filter { $0.isPrivate == scopeIsPrivate && $0.profileID == scopeProfileID }
         guard scopedTabs.count > 1,
               let currentIndex = scopedTabs.firstIndex(where: { $0.id == activeTabID }) else {
             return
@@ -1053,11 +1795,17 @@ public final class CleanroomBrowserStore {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         let source = tabs[idx]
         let departing = activeSession
-        let copy = makeSession(id: UUID(), isPrivate: source.isPrivate)
+        let copy = makeSession(id: UUID(), isPrivate: source.isPrivate, profileID: source.profileID)
         tabs.insert(copy, at: idx + 1)
 
         departing.capturePreviewSnapshot()
         suspendDepartingTabIfNotPlaying(departing)
+        if !source.isPrivate, let srcPID = source.profileID {
+            if srcPID != activeProfileID {
+                applyActiveProfileMetadata(id: srcPID)
+            }
+            lastActiveTabIDByProfile[srcPID] = copy.id
+        }
         activeTabID = copy.id
         touchTabLRU(copy.id)
         copy.setMediaPlaybackSuspended(false)
@@ -1067,13 +1815,16 @@ public final class CleanroomBrowserStore {
             copy.load(urlString: sourceURL)
         }
         enforceLiveWebViewBudget(aggressive: false)
-        persistOpenTabsSnapshot()
+        if let srcPID = source.profileID {
+            persistOpenTabsSnapshot(forProfileID: srcPID)
+        }
     }
 
     public func closeOtherTabs(keeping id: UUID) {
         guard let keeper = tabs.first(where: { $0.id == id }) else { return }
         let scopeIsPrivate = keeper.isPrivate
-        let victims = tabs.filter { $0.isPrivate == scopeIsPrivate && $0.id != id }
+        let scopeProfileID = keeper.profileID
+        let victims = tabs.filter { $0.isPrivate == scopeIsPrivate && $0.profileID == scopeProfileID && $0.id != id }
         guard !victims.isEmpty else { return }
 
         for tab in victims {
@@ -1084,15 +1835,27 @@ public final class CleanroomBrowserStore {
         }
         let victimIDs = Set(victims.map(\.id))
         parentTabIDByChildID = parentTabIDByChildID.filter { !victimIDs.contains($0.value) }
-        tabs.removeAll { $0.isPrivate == scopeIsPrivate && $0.id != id }
+        tabs.removeAll { $0.isPrivate == scopeIsPrivate && $0.profileID == scopeProfileID && $0.id != id }
 
         if !tabs.contains(where: { $0.id == activeTabID }) {
+            if !keeper.isPrivate, let pid = keeper.profileID, pid != activeProfileID {
+                applyActiveProfileMetadata(id: pid)
+            }
             activeTabID = keeper.id
+            if let pid = keeper.profileID {
+                lastActiveTabIDByProfile[pid] = keeper.id
+            }
             touchTabLRU(keeper.id)
             keeper.setMediaPlaybackSuspended(false)
             keeper.hydrateDeferredURLIfNeeded()
+            keeper.syncDeferredSettingsIfNeeded(
+                userAgentProfile: userAgentProfile,
+                autoWebPageDarkMode: autoWebPageDarkMode
+            )
         }
-        persistOpenTabsSnapshot()
+        if let scopeProfileID {
+            persistOpenTabsSnapshot(forProfileID: scopeProfileID)
+        }
     }
 
     private func suspendDepartingTabIfNotPlaying(_ departing: CleanroomWebKitSession) {
@@ -1110,8 +1873,9 @@ public final class CleanroomBrowserStore {
         }
     }
 
-    public func closeAllTabs(isPrivate: Bool) {
-        let victims = tabs.filter { $0.isPrivate == isPrivate }
+    public func closeAllTabs(isPrivate: Bool, profileID: String? = nil) {
+        let targetProfileID: String? = isPrivate ? nil : (profileID ?? activeProfileID)
+        let victims = tabs.filter { $0.isPrivate == isPrivate && $0.profileID == targetProfileID }
         guard !victims.isEmpty else { return }
         let victimIDs = Set(victims.map(\.id))
         for tab in victims {
@@ -1121,30 +1885,39 @@ public final class CleanroomBrowserStore {
             parentTabIDByChildID.removeValue(forKey: tab.id)
         }
         parentTabIDByChildID = parentTabIDByChildID.filter { !victimIDs.contains($0.value) }
-        tabs.removeAll { $0.isPrivate == isPrivate }
+        tabs.removeAll { $0.isPrivate == isPrivate && $0.profileID == targetProfileID }
 
         if isPrivate {
             discardSharedPrivateWebsiteDataStoreIfNoPrivateTabsRemain()
+        } else if let targetProfileID {
+            lastActiveTabIDByProfile.removeValue(forKey: targetProfileID)
         }
 
-        if tabs.isEmpty {
-            let fresh = makeSession(id: UUID(), isPrivate: false)
-            tabs = [fresh]
-            activeTabID = fresh.id
-            touchTabLRU(fresh.id)
-        } else if !tabs.contains(where: { $0.id == activeTabID }) {
-            let nextActive = tabs[tabs.count - 1]
+        if !tabs.contains(where: { $0.id == activeTabID }) {
+            let fallbackProfileID = targetProfileID ?? activeProfileID
+            let nextActive = ensureAtLeastOneTab(forProfileID: fallbackProfileID)
+            if fallbackProfileID != activeProfileID {
+                applyActiveProfileMetadata(id: fallbackProfileID)
+            }
             activeTabID = nextActive.id
+            lastActiveTabIDByProfile[fallbackProfileID] = nextActive.id
             touchTabLRU(nextActive.id)
             nextActive.hydrateDeferredURLIfNeeded()
+            nextActive.syncDeferredSettingsIfNeeded(
+                userAgentProfile: userAgentProfile,
+                autoWebPageDarkMode: autoWebPageDarkMode
+            )
         }
-        persistOpenTabsSnapshot()
+        if let targetProfileID {
+            persistOpenTabsSnapshot(forProfileID: targetProfileID)
+        }
     }
 
     public func closeTab(id: UUID) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         let removing = tabs[idx]
         let wasPrivate = removing.isPrivate
+        let removedProfileID = removing.profileID
         let preferredParentID = parentTabIDByChildID.removeValue(forKey: id)
         parentTabIDByChildID = parentTabIDByChildID.filter { $0.value != id }
 
@@ -1155,32 +1928,57 @@ public final class CleanroomBrowserStore {
 
         if wasPrivate {
             discardSharedPrivateWebsiteDataStoreIfNoPrivateTabsRemain()
+        } else if let removedProfileID, lastActiveTabIDByProfile[removedProfileID] == id {
+            lastActiveTabIDByProfile.removeValue(forKey: removedProfileID)
         }
 
-        if tabs.isEmpty {
-            let fresh = makeSession(id: UUID(), isPrivate: false)
+        let sameBucketRemaining = tabs.filter { $0.isPrivate == wasPrivate && $0.profileID == removedProfileID }
+        if !wasPrivate, let removedProfileID, sameBucketRemaining.isEmpty && activeTabID == id {
+            let fresh = makeSession(id: UUID(), isPrivate: false, profileID: removedProfileID)
+            tabs.append(fresh)
+            activeTabID = fresh.id
+            lastActiveTabIDByProfile[removedProfileID] = fresh.id
+            touchTabLRU(fresh.id)
+        } else if tabs.isEmpty {
+            let fresh = makeSession(id: UUID(), isPrivate: false, profileID: activeProfileID)
             tabs = [fresh]
             activeTabID = fresh.id
+            lastActiveTabIDByProfile[activeProfileID] = fresh.id
             touchTabLRU(fresh.id)
         } else if activeTabID == id {
             let nextActive: CleanroomWebKitSession
             if let preferredParentID,
                let parentTab = tabs.first(where: { $0.id == preferredParentID }) {
                 nextActive = parentTab
+            } else if let lastInSameBucket = sameBucketRemaining.last {
+                nextActive = lastInSameBucket
             } else {
-                let nextIdx = min(idx, tabs.count - 1)
-                nextActive = tabs[nextIdx]
+                nextActive = ensureAtLeastOneTab(forProfileID: activeProfileID)
+            }
+            if !nextActive.isPrivate, let nextPID = nextActive.profileID {
+                if nextPID != activeProfileID {
+                    applyActiveProfileMetadata(id: nextPID)
+                }
+                lastActiveTabIDByProfile[nextPID] = nextActive.id
             }
             activeTabID = nextActive.id
             touchTabLRU(nextActive.id)
             nextActive.setMediaPlaybackSuspended(false)
             nextActive.hydrateDeferredURLIfNeeded()
+            nextActive.syncDeferredSettingsIfNeeded(
+                userAgentProfile: userAgentProfile,
+                autoWebPageDarkMode: autoWebPageDarkMode
+            )
         }
-        persistOpenTabsSnapshot()
+        if let removedProfileID {
+            persistOpenTabsSnapshot(forProfileID: removedProfileID)
+        } else if let activePID = activeSession.profileID {
+            persistOpenTabsSnapshot(forProfileID: activePID)
+        }
     }
 
     private func recordRecentlyClosedIfStandard(_ tab: CleanroomWebKitSession) {
-        guard !tab.isPrivate else { return }
+        guard !tab.isPrivate, let profileID = tab.profileID else { return }
         let urlStr = tab.currentURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !urlStr.isEmpty else { return }
         let entry = RecentlyClosedTab(
@@ -1189,28 +1987,36 @@ public final class CleanroomBrowserStore {
             title: tab.displayTabTitle,
             closedAt: Date()
         )
-        recentlyClosedTabs.insert(entry, at: 0)
-        if recentlyClosedTabs.count > Self.maxRecentlyClosedTabs {
-            recentlyClosedTabs.removeLast(recentlyClosedTabs.count - Self.maxRecentlyClosedTabs)
+        var stack = recentlyClosedTabsByProfile[profileID] ?? []
+        stack.insert(entry, at: 0)
+        if stack.count > Self.maxRecentlyClosedTabs {
+            stack.removeLast(stack.count - Self.maxRecentlyClosedTabs)
         }
+        recentlyClosedTabsByProfile[profileID] = stack
     }
 
     @discardableResult
-    public func reopenLastClosedTab() -> CleanroomWebKitSession? {
-        guard !recentlyClosedTabs.isEmpty else { return nil }
-        let last = recentlyClosedTabs.removeFirst()
-        return openNewTab(urlString: last.urlString, isPrivate: false, activate: true)
+    public func reopenLastClosedTab(profileID: String? = nil) -> CleanroomWebKitSession? {
+        let targetPID = profileID ?? activeProfileID
+        guard var stack = recentlyClosedTabsByProfile[targetPID], !stack.isEmpty else { return nil }
+        let last = stack.removeFirst()
+        recentlyClosedTabsByProfile[targetPID] = stack
+        return openNewTab(urlString: last.urlString, isPrivate: false, activate: true, profileID: targetPID)
     }
 
-    public func clearRecentlyClosedTabs() {
-        recentlyClosedTabs.removeAll()
+    public func clearRecentlyClosedTabs(profileID: String? = nil) {
+        let targetPID = profileID ?? activeProfileID
+        recentlyClosedTabsByProfile[targetPID] = []
     }
 
-    private func persistOpenTabsSnapshot() {
-        let currentActive = activeTabID
+    private func persistOpenTabsSnapshot(forProfileID profileID: String? = nil) {
+        let targetProfileID = profileID ?? activeProfileID
+        let currentActiveForProfile = (activeSession.profileID == targetProfileID)
+            ? activeTabID
+            : lastActiveTabIDByProfile[targetProfileID]
         let vaultRoot = LiveContainerEnvironment.downloadsDirectory.standardizedFileURL.path
         let records: [PersistedOpenTab] = tabs
-            .filter { !$0.isPrivate }
+            .filter { !$0.isPrivate && $0.profileID == targetProfileID }
             .enumerated()
             .map { idx, tab in
                 let rawURL = tab.currentURLString
@@ -1225,37 +2031,55 @@ public final class CleanroomBrowserStore {
                 }
                 return PersistedOpenTab(
                     id: tab.id,
+                    profileID: targetProfileID,
                     urlString: persistedURL,
                     title: persistedURL.isEmpty ? "" : tab.pageTitle,
                     sortOrder: Double(idx + 1) * 100.0,
-                    isActive: tab.id == currentActive
+                    isActive: tab.id == currentActiveForProfile
                 )
             }
         let db = sqliteStore
-        pendingTabsPersistTask?.cancel()
-        pendingTabsPersistTask = Task.detached(priority: .utility) {
+        pendingOpenTabsSnapshotsByProfile[targetProfileID] = records
+        pendingTabsPersistTasksByProfile[targetProfileID]?.cancel()
+        pendingTabsPersistTasksByProfile[targetProfileID] = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            db.saveOpenTabs(records)
+            self?.pendingOpenTabsSnapshotsByProfile.removeValue(forKey: targetProfileID)
+            self?.pendingTabsPersistTasksByProfile.removeValue(forKey: targetProfileID)
+            let version = await Task.detached(priority: .utility) {
+                db.saveOpenTabs(records, forProfileID: targetProfileID)
+                return db.dataVersion()
+            }.value
+            self?.lastObservedDataVersion = version
         }
     }
 
-    // MARK: - Per-Site Policy Rules (`site_rules` in `browser.sqlite3`)
+    // MARK: - Per-Site Policy Rules (`site_rules` in `browser.sqlite3` + Ephemeral Private Map)
 
-    public func siteRule(forHost rawHost: String) -> SiteRuleRecord? {
+    public func siteRule(forHost rawHost: String, profileID: String? = nil, isPrivate: Bool = false) -> SiteRuleRecord? {
         let host = LiveContainerEnvironment.HostNormalizer.normalize(rawHost)
         guard !host.isEmpty else { return nil }
-        if let cached = siteRulesByHost[host] {
-            return cached
+        if isPrivate {
+            return privateSiteRulesByHost[host]
         }
-        if let fromDB = sqliteStore.siteRule(forHost: host) {
-            siteRulesByHost[host] = fromDB
-            return fromDB
+        let targetPID = profileID ?? activeProfileID
+        if targetPID == activeProfileID {
+            return siteRulesByHost[host]
         }
-        return nil
+        if let profileMap = siteRulesByProfileID[targetPID] {
+            return profileMap[host]
+        }
+        // Only hits SQLite if a profile has never been loaded into `siteRulesByProfileID`.
+        let loaded = Dictionary(
+            uniqueKeysWithValues: sqliteStore.loadAllSiteRules(profileID: targetPID).map {
+                (LiveContainerEnvironment.HostNormalizer.normalize($0.host), $0)
+            }
+        )
+        siteRulesByProfileID[targetPID] = loaded
+        return loaded[host]
     }
 
-    public func updateSiteRule(_ rule: SiteRuleRecord) {
+    public func updateSiteRule(_ rule: SiteRuleRecord, profileID: String? = nil, isPrivate: Bool = false) {
         let host = LiveContainerEnvironment.HostNormalizer.normalize(rule.host)
         guard !host.isEmpty else { return }
         let normalizedRule = SiteRuleRecord(
@@ -1265,16 +2089,47 @@ public final class CleanroomBrowserStore {
             uaMode: rule.uaMode,
             pageZoom: rule.pageZoom
         )
+
+        if isPrivate {
+            let previousRule = privateSiteRulesByHost[host]
+            if normalizedRule.isAllDefault {
+                privateSiteRulesByHost.removeValue(forKey: host)
+            } else {
+                privateSiteRulesByHost[host] = normalizedRule
+            }
+            applySiteRuleToMatchingTabs(
+                host: host,
+                previousRule: previousRule,
+                rule: normalizedRule,
+                profileID: nil,
+                isPrivate: true
+            )
+            return
+        }
+
+        let targetPID = profileID ?? activeProfileID
+        let previousRule = siteRule(forHost: host, profileID: targetPID)
+        var profileMap = siteRulesByProfileID[targetPID] ?? (targetPID == activeProfileID ? siteRulesByHost : [:])
         if normalizedRule.isAllDefault {
-            siteRulesByHost.removeValue(forKey: host)
+            profileMap.removeValue(forKey: host)
         } else {
-            siteRulesByHost[host] = normalizedRule
+            profileMap[host] = normalizedRule
+        }
+        siteRulesByProfileID[targetPID] = profileMap
+        if targetPID == activeProfileID {
+            siteRulesByHost = profileMap
         }
         let db = sqliteStore
         Task.detached(priority: .utility) {
-            db.upsertSiteRule(normalizedRule)
+            db.upsertSiteRule(normalizedRule, profileID: targetPID)
         }
-        applySiteRuleToMatchingTabs(host: host, rule: normalizedRule)
+        applySiteRuleToMatchingTabs(
+            host: host,
+            previousRule: previousRule,
+            rule: normalizedRule,
+            profileID: targetPID,
+            isPrivate: false
+        )
     }
 
     public func updateSiteRule(
@@ -1283,11 +2138,14 @@ public final class CleanroomBrowserStore {
         darkMode: Int? = nil,
         uaMode: Int? = nil,
         pageZoom: Double? = nil,
-        resetPageZoom: Bool = false
+        resetPageZoom: Bool = false,
+        profileID: String? = nil,
+        isPrivate: Bool = false
     ) {
+        let targetPID = profileID ?? activeProfileID
         let host = LiveContainerEnvironment.HostNormalizer.normalize(rawHost)
         guard !host.isEmpty else { return }
-        var current = siteRule(forHost: host) ?? SiteRuleRecord(host: host)
+        var current = siteRule(forHost: host, profileID: targetPID, isPrivate: isPrivate) ?? SiteRuleRecord(host: host)
         if let shieldMode { current.shieldMode = shieldMode }
         if let darkMode { current.darkMode = darkMode }
         if let uaMode { current.uaMode = uaMode }
@@ -1297,77 +2155,126 @@ public final class CleanroomBrowserStore {
             let clamped = SiteRuleRecord.clampedZoom(pageZoom)
             current.pageZoom = abs(clamped - 1.0) < 0.001 ? nil : clamped
         }
-        updateSiteRule(current)
+        updateSiteRule(current, profileID: targetPID, isPrivate: isPrivate)
     }
 
-    public func resetSiteRule(forHost rawHost: String) {
+    public func resetSiteRule(forHost rawHost: String, profileID: String? = nil, isPrivate: Bool = false) {
         let host = LiveContainerEnvironment.HostNormalizer.normalize(rawHost)
         guard !host.isEmpty else { return }
-        siteRulesByHost.removeValue(forKey: host)
+        if isPrivate {
+            let previousRule = privateSiteRulesByHost.removeValue(forKey: host)
+            applySiteRuleToMatchingTabs(
+                host: host,
+                previousRule: previousRule,
+                rule: SiteRuleRecord(host: host),
+                profileID: nil,
+                isPrivate: true
+            )
+            return
+        }
+        let targetPID = profileID ?? activeProfileID
+        let previousRule = siteRule(forHost: host, profileID: targetPID)
+        var profileMap = siteRulesByProfileID[targetPID] ?? (targetPID == activeProfileID ? siteRulesByHost : [:])
+        profileMap.removeValue(forKey: host)
+        siteRulesByProfileID[targetPID] = profileMap
+        if targetPID == activeProfileID {
+            siteRulesByHost = profileMap
+        }
         let db = sqliteStore
         Task.detached(priority: .utility) {
-            db.deleteSiteRule(forHost: host)
+            db.deleteSiteRule(forHost: host, profileID: targetPID)
         }
-        applySiteRuleToMatchingTabs(host: host, rule: SiteRuleRecord(host: host))
-    }
-
-    public func effectiveShieldEnabled(forHost rawHost: String?) -> Bool {
-        if let rawHost, let rule = siteRule(forHost: rawHost) {
-            if rule.shieldMode == 1 { return true }
-            if rule.shieldMode == -1 { return false }
-        }
-        return CleanroomContentBlocker.shared.effectiveShieldEnabled(
-            globalEnabled: isShieldEnabled,
-            forHost: rawHost
+        applySiteRuleToMatchingTabs(
+            host: host,
+            previousRule: previousRule,
+            rule: SiteRuleRecord(host: host),
+            profileID: targetPID,
+            isPrivate: false
         )
     }
 
-    public func effectiveAutoDark(forHost rawHost: String?) -> Bool {
-        if let rawHost, let rule = siteRule(forHost: rawHost) {
+    public func effectiveShieldEnabled(forHost rawHost: String?, profileID: String? = nil, isPrivate: Bool = false) -> Bool {
+        let targetPID = profileID ?? activeProfileID
+        if let rawHost, let rule = siteRule(forHost: rawHost, profileID: targetPID, isPrivate: isPrivate) {
+            if rule.shieldMode == 1 { return true }
+            if rule.shieldMode == -1 { return false }
+        }
+        if !isPrivate && targetPID == BrowserProfile.defaultID {
+            return CleanroomContentBlocker.shared.effectiveShieldEnabled(
+                globalEnabled: isShieldEnabled,
+                forHost: rawHost
+            )
+        }
+        return isShieldEnabled
+    }
+
+    public func effectiveAutoDark(forHost rawHost: String?, profileID: String? = nil, isPrivate: Bool = false) -> Bool {
+        let targetPID = profileID ?? activeProfileID
+        if let rawHost, let rule = siteRule(forHost: rawHost, profileID: targetPID, isPrivate: isPrivate) {
             if rule.darkMode == 1 { return true }
             if rule.darkMode == -1 { return false }
         }
-        if let rawHost, DarkReaderEngine.shared.isHostBypassed(rawHost) {
+        if !isPrivate && targetPID == BrowserProfile.defaultID,
+           let rawHost,
+           DarkReaderEngine.shared.isHostBypassed(rawHost) {
             return false
         }
         return autoWebPageDarkMode
     }
 
-    public func effectiveUserAgent(forHost rawHost: String?) -> BrowserUserAgentProfile {
-        if let rawHost, let rule = siteRule(forHost: rawHost) {
+    public func effectiveUserAgent(forHost rawHost: String?, profileID: String? = nil, isPrivate: Bool = false) -> BrowserUserAgentProfile {
+        let targetPID = profileID ?? activeProfileID
+        if let rawHost, let rule = siteRule(forHost: rawHost, profileID: targetPID, isPrivate: isPrivate) {
             if rule.uaMode == 1 { return .iosSafari }
             if rule.uaMode == 2 { return .macosSafari }
         }
-        return userAgentProfile
+        return profile(for: targetPID)?.userAgentProfile ?? userAgentProfile
     }
 
-    public func effectivePageZoom(forHost rawHost: String?) -> Double {
-        if let rawHost, let zoom = siteRule(forHost: rawHost)?.pageZoom {
+    public func effectivePageZoom(forHost rawHost: String?, profileID: String? = nil, isPrivate: Bool = false) -> Double {
+        let targetPID = profileID ?? activeProfileID
+        if let rawHost, let zoom = siteRule(forHost: rawHost, profileID: targetPID, isPrivate: isPrivate)?.pageZoom {
             return SiteRuleRecord.clampedZoom(zoom)
         }
         return 1.0
     }
 
-    private func applySiteRuleToMatchingTabs(host: String, rule: SiteRuleRecord) {
-        let targetUA = effectiveUserAgent(forHost: host)
-        let targetDark = effectiveAutoDark(forHost: host)
-        let targetZoom = effectivePageZoom(forHost: host)
+    private func applySiteRuleToMatchingTabs(
+        host: String,
+        previousRule: SiteRuleRecord?,
+        rule: SiteRuleRecord,
+        profileID: String?,
+        isPrivate: Bool
+    ) {
+        let prev = previousRule ?? SiteRuleRecord(host: host)
+        let shieldChanged = prev.shieldMode != rule.shieldMode
+        let darkChanged = prev.darkMode != rule.darkMode
+        let uaChanged = prev.uaMode != rule.uaMode
+        let zoomChanged = prev.pageZoom != rule.pageZoom
+
+        let targetUA = effectiveUserAgent(forHost: host, profileID: profileID, isPrivate: isPrivate)
+        let targetDark = effectiveAutoDark(forHost: host, profileID: profileID, isPrivate: isPrivate)
+        let targetZoom = effectivePageZoom(forHost: host, profileID: profileID, isPrivate: isPrivate)
         let activeID = activeTabID
-        for tab in tabs {
+        for tab in tabs where tab.isPrivate == isPrivate && (isPrivate || tab.profileID == profileID) {
             guard let tabHost = tab.currentBypassableHost,
                   LiveContainerEnvironment.HostNormalizer.normalize(tabHost) == host else {
                 continue
             }
-            tab.applyPageZoom(targetZoom)
+            if zoomChanged {
+                tab.applyPageZoom(targetZoom)
+            }
             if tab.id == activeID {
-                if rule.shieldMode == -1 {
-                    tab.setShieldBypassedForCurrentHost(true)
-                } else if rule.shieldMode == 1 {
-                    tab.setShieldBypassedForCurrentHost(false)
+                if darkChanged {
+                    tab.applyAutoWebPageDarkMode(targetDark)
                 }
-                tab.applyAutoWebPageDarkMode(targetDark)
-                tab.applyUserAgentProfile(targetUA, reloadIfLoaded: false)
-            } else {
+                if uaChanged {
+                    tab.applyUserAgentProfile(targetUA, reloadIfLoaded: !shieldChanged)
+                }
+                if shieldChanged {
+                    tab.syncShieldRulesForCurrentHost(reloadIfChanged: true)
+                }
+            } else if shieldChanged || darkChanged || uaChanged {
                 tab.markNeedsSettingsSyncOnActivate()
             }
         }
@@ -1398,10 +2305,11 @@ public final class CleanroomBrowserStore {
     public func createFolder(title: String, parentID: String? = nil) -> BrowserFavoriteFolder? {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        let pid = activeProfileID
         let nextOrder = (favoriteFolders.map(\.sortOrder).max() ?? 0) + 100.0
         let created = BrowserFavoriteFolder(parentID: parentID, title: trimmed, sortOrder: nextOrder)
-        sqliteStore.upsertFolder(created)
-        favoriteFolders = sqliteStore.loadFolders()
+        sqliteStore.upsertFolder(created, profileID: pid)
+        favoriteFolders = sqliteStore.loadFolders(profileID: pid)
         rebuildBookmarksFolderIndex()
         return created
     }
@@ -1410,16 +2318,19 @@ public final class CleanroomBrowserStore {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               var target = favoriteFolders.first(where: { $0.id == id }) else { return }
+        let pid = activeProfileID
         target.title = trimmed
-        sqliteStore.upsertFolder(target)
-        favoriteFolders = sqliteStore.loadFolders()
+        sqliteStore.upsertFolder(target, profileID: pid)
+        favoriteFolders = sqliteStore.loadFolders(profileID: pid)
         rebuildBookmarksFolderIndex()
     }
 
     public func deleteFolder(id: String, keepBookmarks: Bool) {
-        sqliteStore.deleteFolder(id: id, keepBookmarks: keepBookmarks)
-        favoriteFolders = sqliteStore.loadFolders()
-        bookmarks = sqliteStore.loadBookmarks()
+        let pid = activeProfileID
+        sqliteStore.deleteFolder(id: id, keepBookmarks: keepBookmarks, profileID: pid)
+        favoriteFolders = sqliteStore.loadFolders(profileID: pid)
+        bookmarks = sqliteStore.loadBookmarks(profileID: pid)
+        bookmarkCountsByProfileID[pid] = bookmarks.count
         rebuildBookmarksFolderIndex()
     }
 
@@ -1463,10 +2374,11 @@ public final class CleanroomBrowserStore {
             effectiveTitle = cleanTitle
         }
 
+        let pid = activeProfileID
         if var existing = existingBookmark(for: cleanURL) {
             existing.title = effectiveTitle
             existing.folderID = folderID
-            sqliteStore.upsertBookmark(existing)
+            sqliteStore.upsertBookmark(existing, profileID: pid)
         } else {
             let nextOrder = (bookmarks.map(\.sortOrder).max() ?? 0) + 100.0
             let created = BrowserBookmark(
@@ -1476,9 +2388,10 @@ public final class CleanroomBrowserStore {
                 folderID: folderID,
                 sortOrder: nextOrder
             )
-            sqliteStore.upsertBookmark(created)
+            sqliteStore.upsertBookmark(created, profileID: pid)
         }
-        bookmarks = sqliteStore.loadBookmarks()
+        bookmarks = sqliteStore.loadBookmarks(profileID: pid)
+        bookmarkCountsByProfileID[pid] = bookmarks.count
         rebuildBookmarksFolderIndex()
     }
 
@@ -1499,41 +2412,48 @@ public final class CleanroomBrowserStore {
         } else {
             effectiveTitle = cleanTitle
         }
+        let pid = activeProfileID
         if Self.normalizeURLKey(target.urlString) != Self.normalizeURLKey(cleanURL) {
-            sqliteStore.deleteBookmark(id: id)
+            sqliteStore.deleteBookmark(id: id, profileID: pid)
         }
         target.title = effectiveTitle
         target.urlString = cleanURL
         target.folderID = folderID
-        sqliteStore.upsertBookmark(target)
-        bookmarks = sqliteStore.loadBookmarks()
+        sqliteStore.upsertBookmark(target, profileID: pid)
+        bookmarks = sqliteStore.loadBookmarks(profileID: pid)
+        bookmarkCountsByProfileID[pid] = bookmarks.count
         rebuildBookmarksFolderIndex()
     }
 
     public func moveBookmark(id: String, toFolderID folderID: String?) {
         guard var target = bookmarks.first(where: { $0.id == id }) else { return }
+        let pid = activeProfileID
         target.folderID = folderID
-        sqliteStore.upsertBookmark(target)
-        bookmarks = sqliteStore.loadBookmarks()
+        sqliteStore.upsertBookmark(target, profileID: pid)
+        bookmarks = sqliteStore.loadBookmarks(profileID: pid)
+        bookmarkCountsByProfileID[pid] = bookmarks.count
         rebuildBookmarksFolderIndex()
     }
 
     public func removeBookmark(id: String) {
-        sqliteStore.deleteBookmark(id: id)
-        bookmarks = sqliteStore.loadBookmarks()
+        let pid = activeProfileID
+        sqliteStore.deleteBookmark(id: id, profileID: pid)
+        bookmarks = sqliteStore.loadBookmarks(profileID: pid)
+        bookmarkCountsByProfileID[pid] = bookmarks.count
         rebuildBookmarksFolderIndex()
     }
 
     // MARK: - Local FTS5 Omnibox Autocomplete
 
     /// Returns deduplicated local suggestions combining matching Favorites (prioritized) and
-    /// frecency-ranked SQLite FTS5 `places` off `@MainActor`.
+    /// frecency-ranked SQLite FTS5 `places` off `@MainActor`, strictly scoped to `activeProfileID`.
     public func omniboxSuggestions(for query: String, limit: Int = 6) async -> [OmniboxSuggestion] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, limit > 0 else { return [] }
 
         let bookmarksSnapshot = bookmarks
         let db = historyStore
+        let pid = activeProfileID
         return await Task.detached(priority: .userInitiated) {
             let lowerQuery = trimmed.lowercased()
             var results: [OmniboxSuggestion] = []
@@ -1576,7 +2496,7 @@ public final class CleanroomBrowserStore {
 
             // 2. Append frecency-ranked FTS5 history places deduplicated by canonical URL.
             if results.count < limit {
-                let places = db.queryTopPlaces(matching: trimmed, limit: max(limit * 2, 12))
+                let places = db.queryTopPlaces(matching: trimmed, limit: max(limit * 2, 12), profileID: pid)
                 for place in places {
                     guard results.count < limit else { break }
                     let key = Self.normalizeURLKey(place.url)
@@ -1848,6 +2768,7 @@ public final class CleanroomBrowserStore {
         }
 
         var resolvedFolderIDByTempID: [String: String] = [:]
+        var foldersToInsert: [BrowserFavoriteFolder] = []
         var nextFolderOrder = (favoriteFolders.map(\.sortOrder).max() ?? 0) + 100.0
         var remaining = importedFolders.filter { neededFolderTempIDs.contains($0.tempID) }
         var progress = true
@@ -1876,16 +2797,17 @@ public final class CleanroomBrowserStore {
                 if let existingID = existingFoldersByKey[lookupKey] {
                     resolvedFolderIDByTempID[spec.tempID] = existingID
                 } else {
-                    let targetID = existingFolderIDs.contains(spec.tempID) ? UUID().uuidString : spec.tempID
+                    // Always mint a fresh UUID so importing a Dysprosium JSON backup exported from
+                    // another profile never collides on `favorite_folders.id` primary key.
                     let created = BrowserFavoriteFolder(
-                        id: targetID,
+                        id: UUID().uuidString,
                         parentID: resolvedParentID,
                         title: effectiveTitle,
                         sortOrder: nextFolderOrder,
                         createdAt: spec.createdAt
                     )
                     nextFolderOrder += 100.0
-                    sqliteStore.upsertFolder(created)
+                    foldersToInsert.append(created)
                     existingFolderIDs.insert(created.id)
                     existingFoldersByKey[lookupKey] = created.id
                     resolvedFolderIDByTempID[spec.tempID] = created.id
@@ -1896,7 +2818,8 @@ public final class CleanroomBrowserStore {
         }
 
         var nextBookmarkOrder = (bookmarks.map(\.sortOrder).max() ?? 0) + 100.0
-        var importedCount = 0
+        var bookmarksToInsert: [BrowserBookmark] = []
+        bookmarksToInsert.reserveCapacity(newBookmarks.count)
         for item in newBookmarks {
             let cleanTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let effectiveTitle: String
@@ -1923,14 +2846,20 @@ public final class CleanroomBrowserStore {
                 sortOrder: nextBookmarkOrder
             )
             nextBookmarkOrder += 100.0
-            sqliteStore.upsertBookmark(created)
-            importedCount += 1
+            bookmarksToInsert.append(created)
         }
 
-        favoriteFolders = sqliteStore.loadFolders()
-        bookmarks = sqliteStore.loadBookmarks()
+        let pid = activeProfileID
+        sqliteStore.importFavoritesBatch(
+            folders: foldersToInsert,
+            bookmarks: bookmarksToInsert,
+            profileID: pid
+        )
+        favoriteFolders = sqliteStore.loadFolders(profileID: pid)
+        bookmarks = sqliteStore.loadBookmarks(profileID: pid)
+        bookmarkCountsByProfileID[pid] = bookmarks.count
         rebuildBookmarksFolderIndex()
-        return importedCount
+        return bookmarksToInsert.count
     }
 
     private static func parseNetscapeBookmarkHTML(
@@ -2247,13 +3176,14 @@ public final class CleanroomBrowserStore {
 
     public func removeHistoryEntry(id: String) {
         sqliteStore.deleteEntry(id: id)
-        totalHistoryCount = sqliteStore.totalCount()
+        totalHistoryCount = sqliteStore.totalCount(profileID: activeProfileID)
         historyRevision &+= 1
     }
 
     public func clearHistoryDay(dayYMD: Int64) {
-        sqliteStore.clearDay(dayYMD: dayYMD)
-        totalHistoryCount = sqliteStore.totalCount()
+        let pid = activeProfileID
+        sqliteStore.clearDay(dayYMD: dayYMD, profileID: pid)
+        totalHistoryCount = sqliteStore.totalCount(profileID: pid)
         historyRevision &+= 1
     }
 
@@ -2261,10 +3191,13 @@ public final class CleanroomBrowserStore {
         clearHistoryDay(dayYMD: BrowserSQLiteStore.calendarDayYMD(for: Date()))
     }
 
-    public func clearHistory() {
-        sqliteStore.clearAll()
+    public func clearHistory(profileID: String? = nil) {
+        let pid = profileID ?? activeProfileID
+        sqliteStore.clearAll(profileID: pid)
         sqliteStore.reclaimStorage(fullVacuum: true)
-        totalHistoryCount = 0
+        if pid == activeProfileID {
+            totalHistoryCount = 0
+        }
         historyRevision &+= 1
     }
 
@@ -2311,19 +3244,30 @@ public final class CleanroomBrowserStore {
         WKWebsiteDataTypeSearchFieldRecentSearches
     ]
 
-    /// Performs thorough, zero-ghost-storage clearing across SQLite (`VACUUM` + WAL truncation),
-    /// WebKit caches/storage/ServiceWorkers/FileSystem/MediaKeys, stubborn `HttpOnly` cookies,
-    /// Foundation `URLCache` / `HTTPCookieStorage`, `DarkReaderEngine`, `SiteIconStore`,
-    /// orphaned staging/temp files, live tab Web Storage, and optional transfer auth-header scrubbing.
+    /// Performs thorough, zero-ghost-storage clearing scoped to `profileID` (defaulting to `activeProfileID`)
+    /// across SQLite (`VACUUM` + WAL truncation), that profile's WebKit store, stubborn `HttpOnly` cookies,
+    /// `DarkReaderEngine`, `SiteIconStore`, orphaned staging/temp files, live tab Web Storage, and scoped transfer auth headers.
     @discardableResult
     public func performClearBrowsingData(
         since cutoff: Date,
         until endCutoff: Date? = nil,
         options: BrowsingClearOptions,
+        profileID: String? = nil,
         activeTransferIDs: Set<UUID>? = nil,
         onScrubTransferAuthData: (@MainActor () async -> Void)? = nil
     ) async -> BrowsingClearReport {
-        let beforeFootprint = await computeStorageFootprint()
+        let targetProfileID = profileID ?? activeProfileID
+        guard let targetProfile = profile(for: targetProfileID) else {
+            return BrowsingClearReport(
+                bytesReclaimed: 0,
+                historyEntriesRemoved: 0,
+                websiteRecordsRemoved: 0,
+                cookiesRemoved: 0,
+                temporaryBytesReclaimed: 0,
+                closedTabCount: 0
+            )
+        }
+        let beforeFootprint = await computeStorageFootprint(profileID: targetProfileID)
 
         var historyEntriesRemoved = 0
         var websiteRecordsRemoved = 0
@@ -2335,19 +3279,23 @@ public final class CleanroomBrowserStore {
         if options.includeHistory {
             let db = sqliteStore
             let (removedCount, remainingCount, updatedVersion) = await Task.detached(priority: .userInitiated) {
-                let matching = db.countEntries(since: cutoff, until: endCutoff)
-                db.clearEntries(since: cutoff, until: endCutoff)
+                let matching = db.countEntries(since: cutoff, until: endCutoff, profileID: targetProfileID)
+                db.clearEntries(since: cutoff, until: endCutoff, profileID: targetProfileID)
                 db.reclaimStorage(fullVacuum: true)
-                return (matching, db.totalCount(), db.dataVersion())
+                return (matching, db.totalCount(profileID: targetProfileID), db.dataVersion())
             }.value
             historyEntriesRemoved = removedCount
-            totalHistoryCount = remainingCount
+            if targetProfileID == activeProfileID {
+                totalHistoryCount = remainingCount
+            }
             lastObservedDataVersion = updatedVersion
             historyRevision &+= 1
 
             if cutoff <= .distantPast && endCutoff == nil {
-                await SiteIconStore.shared.clearDiskCache()
-                clearRecentlyClosedTabs()
+                if profiles.count <= 1 {
+                    await SiteIconStore.shared.clearDiskCache()
+                }
+                clearRecentlyClosedTabs(profileID: targetProfileID)
             }
         }
 
@@ -2355,9 +3303,13 @@ public final class CleanroomBrowserStore {
         var websiteTypes = Set<String>()
         if options.includeCache {
             websiteTypes.formUnion(Self.cacheWebsiteDataTypes)
-            URLCache.shared.removeAllCachedResponses()
+            if targetProfile.isDefault {
+                URLCache.shared.removeAllCachedResponses()
+            }
             DarkReaderEngine.shared.purgeMemoryCache()
-            await SiteIconStore.shared.clearDiskCache()
+            if profiles.count <= 1 {
+                await SiteIconStore.shared.clearDiskCache()
+            }
 
             let protectedTransferIDs = activeTransferIDs ?? activeTransferIDsProvider?() ?? []
             temporaryBytesReclaimed = await Task.detached(priority: .utility) {
@@ -2375,56 +3327,63 @@ public final class CleanroomBrowserStore {
         }
 
         if !websiteTypes.isEmpty {
-            let dataStore = WKWebsiteDataStore.default()
-            let existingRecords = await dataStore.dataRecords(ofTypes: websiteTypes)
-            websiteRecordsRemoved = existingRecords.count
+            if let dataStore = await dataStoreRegistry.liveStoreIfAllocated(for: targetProfile) {
+                let existingRecords = await dataStore.dataRecords(ofTypes: websiteTypes)
+                websiteRecordsRemoved = existingRecords.count
 
-            await dataStore.removeData(ofTypes: websiteTypes, modifiedSince: cutoff)
+                await dataStore.removeData(ofTypes: websiteTypes, modifiedSince: cutoff)
 
-            if options.includeCookiesAndSessions {
-                // Explicitly enumerate & delete stubborn `HttpOnly` cookies in `WKHTTPCookieStore`.
-                let cookieStore = dataStore.httpCookieStore
-                let remainingCookies = await cookieStore.allCookies()
-                let clearAllCookies = (cutoff <= .distantPast)
-                for cookie in remainingCookies {
-                    if clearAllCookies || cookie.isSessionOnly {
-                        await cookieStore.deleteCookie(cookie)
-                        cookiesRemoved += 1
+                if options.includeCookiesAndSessions {
+                    // Explicitly enumerate & delete stubborn `HttpOnly` cookies in `WKHTTPCookieStore`.
+                    let cookieStore = dataStore.httpCookieStore
+                    let remainingCookies = await cookieStore.allCookies()
+                    let clearAllCookies = (cutoff <= .distantPast)
+                    for cookie in remainingCookies {
+                        if clearAllCookies || cookie.isSessionOnly {
+                            await cookieStore.deleteCookie(cookie)
+                            cookiesRemoved += 1
+                        }
                     }
-                }
-
-                // Clear Foundation `HTTPCookieStorage.shared` as well.
-                let sharedCookiesBefore = HTTPCookieStorage.shared.cookies?.count ?? 0
-                HTTPCookieStorage.shared.removeCookies(since: cutoff)
-                let sharedCookiesAfter = HTTPCookieStorage.shared.cookies?.count ?? 0
-                if sharedCookiesBefore > sharedCookiesAfter {
-                    cookiesRemoved += (sharedCookiesBefore - sharedCookiesAfter)
-                }
-
-                // Clear live in-memory Web Storage (`sessionStorage` + `localStorage`) on active standard tabs.
-                for tab in tabs where !tab.isPrivate {
-                    await tab.clearLiveWebStorageIfLoaded()
-                }
-
-                // Scrub persisted transfer auth headers (`Cookie` / `Authorization`) in `TransferStore` if wired.
-                if let scrub = onScrubTransferAuthData ?? self.onScrubTransferAuthData {
-                    await scrub()
                 }
             }
 
-            for tab in tabs where !tab.isPrivate {
+            if options.includeCookiesAndSessions {
+                // Gate Foundation `HTTPCookieStorage.shared` strictly to the Default Profile.
+                if targetProfile.isDefault {
+                    let sharedCookiesBefore = HTTPCookieStorage.shared.cookies?.count ?? 0
+                    HTTPCookieStorage.shared.removeCookies(since: cutoff)
+                    let sharedCookiesAfter = HTTPCookieStorage.shared.cookies?.count ?? 0
+                    if sharedCookiesBefore > sharedCookiesAfter {
+                        cookiesRemoved += (sharedCookiesBefore - sharedCookiesAfter)
+                    }
+                }
+
+                // Clear live in-memory Web Storage (`sessionStorage` + `localStorage`) ONLY on this profile's tabs.
+                for tab in tabs where !tab.isPrivate && tab.profileID == targetProfileID {
+                    await tab.clearLiveWebStorageIfLoaded()
+                }
+
+                // Scrub persisted transfer auth headers (`Cookie` / `Authorization`) ONLY for this profile.
+                if let explicitScrub = onScrubTransferAuthData {
+                    await explicitScrub()
+                } else if let wiredScrub = self.onScrubTransferAuthData {
+                    await wiredScrub(targetProfileID)
+                }
+            }
+
+            for tab in tabs where !tab.isPrivate && tab.profileID == targetProfileID {
                 tab.clearCandidates()
             }
         }
 
-        // 4. Close Standard Tabs Scope
+        // 4. Close Standard Tabs Scope (strictly for this profile)
         if options.closeStandardTabs {
-            closedTabCount = tabs.filter { !$0.isPrivate }.count
-            closeAllTabs(isPrivate: false)
-            clearRecentlyClosedTabs()
+            closedTabCount = tabs.filter { !$0.isPrivate && $0.profileID == targetProfileID }.count
+            closeAllTabs(isPrivate: false, profileID: targetProfileID)
+            clearRecentlyClosedTabs(profileID: targetProfileID)
         }
 
-        let afterFootprint = await computeStorageFootprint()
+        let afterFootprint = await computeStorageFootprint(profileID: targetProfileID)
         let footprintDelta: UInt64 = beforeFootprint.totalBytes > afterFootprint.totalBytes
             ? (beforeFootprint.totalBytes - afterFootprint.totalBytes)
             : 0
@@ -2441,7 +3400,7 @@ public final class CleanroomBrowserStore {
     }
 
     @discardableResult
-    public func clearAllBrowsingData() async -> BrowsingClearReport {
+    public func clearAllBrowsingData(profileID: String? = nil) async -> BrowsingClearReport {
         await performClearBrowsingData(
             since: .distantPast,
             options: BrowsingClearOptions(
@@ -2449,36 +3408,84 @@ public final class CleanroomBrowserStore {
                 includeCache: true,
                 includeCookiesAndSessions: true,
                 closeStandardTabs: false
-            )
+            ),
+            profileID: profileID
         )
     }
 
     // MARK: - Per-Site Website Data & Storage Footprint Inspection
 
-    /// Measures real disk bytes across SQLite (+ WAL/SHM), `SiteIcons`, WebKit cache/data directories,
-    /// and `Staging`/temp directories without blocking `@MainActor`.
-    public func computeStorageFootprint() async -> BrowserStorageFootprint {
+    /// Measures real disk bytes across SQLite (+ WAL/SHM), `SiteIcons`, WebKit cache/data directories
+    /// scoped to `profileID` (excluding compiled adblock `ContentRuleLists/`), and `Staging`/temp directories.
+    public func computeStorageFootprint(profileID: String? = nil) async -> BrowserStorageFootprint {
+        let targetProfileID = profileID ?? activeProfileID
+        guard let targetProfile = profile(for: targetProfileID) else {
+            return BrowserStorageFootprint(
+                historySQLiteBytes: 0,
+                faviconCacheBytes: 0,
+                webKitCacheBytes: 0,
+                stagingTempBytes: 0,
+                websiteDomainCount: 0
+            )
+        }
         let db = sqliteStore
         let stagingDir = LiveContainerEnvironment.stagingDirectory
         let tempDir = FileManager.default.temporaryDirectory
-        let cachesWebKitDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("WebKit", isDirectory: true)
+        let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         let libraryWebKitDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
             .appendingPathComponent("WebKit", isDirectory: true)
         let libraryCookiesDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
             .appendingPathComponent("Cookies", isDirectory: true)
+        let bundleID = Bundle.main.bundleIdentifier
+        let secondaryStoreDirs = targetProfile.webkitStoreID.map {
+            ProfileWebsiteDataStoreRegistry.existingDiskDirectories(forStoreIdentifier: $0)
+        } ?? []
+        let isDefaultTarget = targetProfile.isDefault
 
         async let diskMetrics: (sqlite: UInt64, webKit: UInt64, staging: UInt64) = Task.detached(priority: .utility) {
             let sqliteBytes = db.databaseDiskUsageBytes()
             var wkBytes: UInt64 = 0
-            if let cachesWebKitDir {
-                wkBytes &+= LiveContainerEnvironment.directorySizeBytes(at: cachesWebKitDir)
-            }
-            if let libraryWebKitDir {
-                wkBytes &+= LiveContainerEnvironment.directorySizeBytes(at: libraryWebKitDir)
-            }
-            if let libraryCookiesDir {
-                wkBytes &+= LiveContainerEnvironment.directorySizeBytes(at: libraryCookiesDir)
+            let fm = FileManager.default
+            if isDefaultTarget {
+                // Default WebKit caches (`Library/Caches/WebKit` and iOS 27.2 `Library/Caches/<BundleID>/WebKit`).
+                if let cachesRoot {
+                    let legacyCache = cachesRoot.appendingPathComponent("WebKit", isDirectory: true)
+                    wkBytes &+= LiveContainerEnvironment.directorySizeBytes(at: legacyCache)
+                    if let bundleID, !bundleID.isEmpty {
+                        let bundleCache = cachesRoot
+                            .appendingPathComponent(bundleID, isDirectory: true)
+                            .appendingPathComponent("WebKit", isDirectory: true)
+                        wkBytes &+= LiveContainerEnvironment.directorySizeBytes(at: bundleCache)
+                    }
+                }
+                // Enumerate `Library/WebKit` excluding shared `ContentRuleLists` and secondary `WebsiteDataStore`
+                // both at top-level and inside `<BundleID>/` subdirectories.
+                if let libraryWebKitDir,
+                   let topEntries = try? fm.contentsOfDirectory(at: libraryWebKitDir, includingPropertiesForKeys: [.isDirectoryKey]) {
+                    for entry in topEntries {
+                        let name = entry.lastPathComponent
+                        if name == "ContentRuleLists" || name == "WebsiteDataStore" { continue }
+                        let isDir = (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                        if isDir,
+                           let nested = try? fm.contentsOfDirectory(at: entry, includingPropertiesForKeys: nil),
+                           nested.contains(where: { $0.lastPathComponent == "ContentRuleLists" || $0.lastPathComponent == "WebsiteDataStore" }) {
+                            for child in nested {
+                                let childName = child.lastPathComponent
+                                if childName == "ContentRuleLists" || childName == "WebsiteDataStore" { continue }
+                                wkBytes &+= LiveContainerEnvironment.directorySizeBytes(at: child)
+                            }
+                        } else {
+                            wkBytes &+= LiveContainerEnvironment.directorySizeBytes(at: entry)
+                        }
+                    }
+                }
+                if let libraryCookiesDir {
+                    wkBytes &+= LiveContainerEnvironment.directorySizeBytes(at: libraryCookiesDir)
+                }
+            } else {
+                for dir in secondaryStoreDirs {
+                    wkBytes &+= LiveContainerEnvironment.directorySizeBytes(at: dir)
+                }
             }
             let stagingBytes = LiveContainerEnvironment.directorySizeBytes(at: stagingDir)
                 &+ LiveContainerEnvironment.directorySizeBytes(at: tempDir)
@@ -2486,7 +3493,7 @@ public final class CleanroomBrowserStore {
         }.value
 
         async let iconBytes = SiteIconStore.shared.diskUsageBytes()
-        async let domains = fetchWebsiteDataDomains()
+        async let domains = fetchWebsiteDataDomains(profileID: targetProfileID)
 
         let (metrics, favBytes, domainList) = await (diskMetrics, iconBytes, domains)
         return BrowserStorageFootprint(
@@ -2498,10 +3505,14 @@ public final class CleanroomBrowserStore {
         )
     }
 
-    /// Enumerates every website domain currently holding cookies, storage, or caches in `WKWebsiteDataStore.default()`,
-    /// merged with any stubborn cookie-only domains from `WKHTTPCookieStore`, sorted alphabetically.
-    public func fetchWebsiteDataDomains() async -> [WebsiteDataDomainSummary] {
-        let dataStore = WKWebsiteDataStore.default()
+    /// Enumerates every website domain currently holding cookies, storage, or caches in `profileID`'s
+    /// `WKWebsiteDataStore`, merged with stubborn cookie-only domains from `WKHTTPCookieStore`.
+    public func fetchWebsiteDataDomains(profileID: String? = nil) async -> [WebsiteDataDomainSummary] {
+        let targetProfileID = profileID ?? activeProfileID
+        guard let targetProfile = profile(for: targetProfileID),
+              let dataStore = await dataStoreRegistry.liveStoreIfAllocated(for: targetProfile) else {
+            return []
+        }
         let allTypes = WKWebsiteDataStore.allWebsiteDataTypes()
         let records = await dataStore.dataRecords(ofTypes: allTypes)
         let liveCookies = await dataStore.httpCookieStore.allCookies()
@@ -2560,10 +3571,10 @@ public final class CleanroomBrowserStore {
         }
     }
 
-    /// Completely removes all website data for the specified domains:
-    /// `WKWebsiteDataRecord`s, matching `WKHTTPCookieStore` (`HttpOnly`) & `HTTPCookieStorage.shared` cookies,
-    /// `SiteIconStore` cached favicons, and live tab `sessionStorage`/`localStorage` — zero ghost remnants.
-    public func removeWebsiteData(forDisplayNames names: Set<String>) async {
+    /// Completely removes all website data for the specified domains strictly inside `profileID`'s store.
+    public func removeWebsiteData(forDisplayNames names: Set<String>, profileID: String? = nil) async {
+        let targetProfileID = profileID ?? activeProfileID
+        guard let targetProfile = profile(for: targetProfileID) else { return }
         let normalizedTargets: Set<String> = Set(
             names.compactMap { raw -> String? in
                 let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: ". ")).lowercased()
@@ -2573,38 +3584,39 @@ public final class CleanroomBrowserStore {
         )
         guard !normalizedTargets.isEmpty else { return }
 
-        let dataStore = WKWebsiteDataStore.default()
-        let allTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        if let dataStore = await dataStoreRegistry.liveStoreIfAllocated(for: targetProfile) {
+            let allTypes = WKWebsiteDataStore.allWebsiteDataTypes()
 
-        // 1. Remove matching WKWebsiteDataRecords
-        let records = await dataStore.dataRecords(ofTypes: allTypes)
-        let matchingRecords = records.filter { record in
-            let recName = LiveContainerEnvironment.HostNormalizer.normalize(record.displayName)
-            return normalizedTargets.contains { target in
-                recName == target || recName.hasSuffix(".\(target)") || target.hasSuffix(".\(recName)")
+            // 1. Remove matching WKWebsiteDataRecords
+            let records = await dataStore.dataRecords(ofTypes: allTypes)
+            let matchingRecords = records.filter { record in
+                let recName = LiveContainerEnvironment.HostNormalizer.normalize(record.displayName)
+                return normalizedTargets.contains { target in
+                    recName == target || recName.hasSuffix(".\(target)") || target.hasSuffix(".\(recName)")
+                }
+            }
+            if !matchingRecords.isEmpty {
+                await dataStore.removeData(ofTypes: allTypes, for: matchingRecords)
+            }
+
+            // 2. Remove matching HttpOnly / persistent cookies from WKHTTPCookieStore
+            let cookieStore = dataStore.httpCookieStore
+            let liveCookies = await cookieStore.allCookies()
+            for cookie in liveCookies {
+                let dom = LiveContainerEnvironment.HostNormalizer.normalize(
+                    cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+                )
+                let matches = normalizedTargets.contains { target in
+                    dom == target || dom.hasSuffix(".\(target)") || target.hasSuffix(".\(dom)")
+                }
+                if matches {
+                    await cookieStore.deleteCookie(cookie)
+                }
             }
         }
-        if !matchingRecords.isEmpty {
-            await dataStore.removeData(ofTypes: allTypes, for: matchingRecords)
-        }
 
-        // 2. Remove matching HttpOnly / persistent cookies from WKHTTPCookieStore
-        let cookieStore = dataStore.httpCookieStore
-        let liveCookies = await cookieStore.allCookies()
-        for cookie in liveCookies {
-            let dom = LiveContainerEnvironment.HostNormalizer.normalize(
-                cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
-            )
-            let matches = normalizedTargets.contains { target in
-                dom == target || dom.hasSuffix(".\(target)") || target.hasSuffix(".\(dom)")
-            }
-            if matches {
-                await cookieStore.deleteCookie(cookie)
-            }
-        }
-
-        // 3. Remove matching cookies from Foundation HTTPCookieStorage.shared
-        if let sharedCookies = HTTPCookieStorage.shared.cookies {
+        // 3. Remove matching cookies from Foundation HTTPCookieStorage.shared (Default Profile only)
+        if targetProfile.isDefault, let sharedCookies = HTTPCookieStorage.shared.cookies {
             for cookie in sharedCookies {
                 let dom = LiveContainerEnvironment.HostNormalizer.normalize(
                     cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
@@ -2618,13 +3630,16 @@ public final class CleanroomBrowserStore {
             }
         }
 
-        // 4. Remove cached favicons from SiteIconStore
-        for host in normalizedTargets {
+        // 4. Remove cached favicons only if not referenced by any remaining profile
+        let otherProfileHosts: Set<String> = profiles.count > 1
+            ? sqliteStore.allReferencedHosts(excludingProfileID: targetProfileID)
+            : []
+        for host in normalizedTargets where !otherProfileHosts.contains(host) {
             await SiteIconStore.shared.removeIcon(forHost: host)
         }
 
-        // 5. Clear live sessionStorage/localStorage & candidates on matching standard tabs
-        for tab in tabs where !tab.isPrivate && tab.matchesDomainSet(normalizedTargets) {
+        // 5. Clear live sessionStorage/localStorage & candidates ONLY on matching tabs of this profile
+        for tab in tabs where !tab.isPrivate && tab.profileID == targetProfileID && tab.matchesDomainSet(normalizedTargets) {
             await tab.clearLiveWebStorageIfLoaded()
             tab.clearCandidates()
         }
@@ -2667,60 +3682,147 @@ public final class CleanroomBrowserStore {
 
     // MARK: - Internal Wiring
 
-    private func makeSession(id: UUID, isPrivate: Bool) -> CleanroomWebKitSession {
-        let privateStoreProvider: (@MainActor () -> WKWebsiteDataStore)?
+    private func makeSession(
+        id: UUID,
+        isPrivate: Bool,
+        profileID: String? = nil
+    ) -> CleanroomWebKitSession {
+        let resolvedProfileID: String? = isPrivate ? nil : (profileID ?? activeProfileID)
+        let storeProvider: @MainActor () -> WKWebsiteDataStore
         if isPrivate {
-            privateStoreProvider = { [weak self] in
+            storeProvider = { [weak self] in
                 self?.acquireSharedPrivateWebsiteDataStore() ?? .nonPersistent()
             }
         } else {
-            privateStoreProvider = nil
+            let pid = resolvedProfileID ?? BrowserProfile.defaultID
+            storeProvider = { [weak self] in
+                guard let self else {
+                    return pid == BrowserProfile.defaultID ? .default() : .nonPersistent()
+                }
+                if let targetProfile = self.profile(for: pid) {
+                    return self.dataStoreRegistry.websiteDataStore(for: targetProfile)
+                }
+                // Fail closed: NEVER fall back to `.default()` for a secondary profile before
+                // hydration finishes or after deletion, preventing cross-profile cookie leakage.
+                if pid == BrowserProfile.defaultID {
+                    let store = WKWebsiteDataStore.default()
+                    SystemProxyBridge.sync(dataStore: store)
+                    return store
+                }
+                return .nonPersistent()
+            }
         }
         let siteRuleProvider: @MainActor (String) -> SiteRuleRecord? = { [weak self] host in
-            self?.siteRule(forHost: host)
+            guard let self else { return nil }
+            if isPrivate {
+                return self.siteRule(forHost: host, isPrivate: true)
+            }
+            let lookupPID = resolvedProfileID ?? self.activeProfileID
+            return self.siteRule(forHost: host, profileID: lookupPID, isPrivate: false)
+        }
+        let seedProvider: (@MainActor () -> String?)?
+        let uaProvider: (@MainActor () -> BrowserUserAgentProfile?)?
+        let searchProvider: @MainActor () -> (BrowserSearchEngine, String)
+        if let pid = resolvedProfileID {
+            seedProvider = { [weak self] in
+                self?.profile(for: pid)?.fingerprintSeed ?? FingerprintShieldEngine.shared.standardSeed
+            }
+            uaProvider = { [weak self] in
+                self?.profile(for: pid)?.userAgentProfile ?? self?.userAgentProfile
+            }
+            searchProvider = { [weak self] in
+                guard let self else {
+                    return (BrowserSearchEngine.persistedCurrent, BrowserSearchEngine.persistedCustomTemplate)
+                }
+                if let target = self.profile(for: pid) {
+                    return (target.searchEngine, target.customSearchTemplate)
+                }
+                return (self.searchEngine, self.customSearchTemplate)
+            }
+        } else {
+            seedProvider = nil
+            uaProvider = nil
+            searchProvider = { [weak self] in
+                guard let self else {
+                    return (BrowserSearchEngine.persistedCurrent, BrowserSearchEngine.persistedCustomTemplate)
+                }
+                return (self.activeProfile.searchEngine, self.activeProfile.customSearchTemplate)
+            }
         }
         let session = CleanroomWebKitSession(
             id: id,
             isPrivate: isPrivate,
-            privateWebsiteDataStoreProvider: privateStoreProvider,
-            siteRuleProvider: siteRuleProvider
+            profileID: resolvedProfileID,
+            websiteDataStoreProvider: storeProvider,
+            siteRuleProvider: siteRuleProvider,
+            profileFingerprintSeedProvider: seedProvider,
+            profileUserAgentProvider: uaProvider,
+            profileSearchProvider: searchProvider
         )
         wireTabCallbacks(session)
         return session
     }
 
     private func wireTabCallbacks(_ session: CleanroomWebKitSession) {
+        let owningProfileID = session.profileID
+        let sessionIsPrivate = session.isPrivate
         session.onOpenLinkInTab = { [weak self] url, isPrivate, activate in
-            self?.openNewTab(urlString: url.absoluteString, isPrivate: isPrivate, activate: activate)
+            self?.openNewTab(
+                urlString: url.absoluteString,
+                isPrivate: isPrivate,
+                activate: activate,
+                profileID: isPrivate ? nil : owningProfileID
+            )
         }
-        session.onNavigationCommitted = { [weak self] url, title in
-            guard let self else { return }
-            self.recordHistoryVisit(url: url, title: title)
-            self.persistOpenTabsSnapshot()
+        session.onNavigationCommitted = { [weak self, weak session] url, title in
+            guard let self, let session else { return }
+            if !session.isPrivate, let pid = session.profileID {
+                self.recordHistoryVisit(url: url, title: title, profileID: pid)
+                self.persistOpenTabsSnapshot(forProfileID: pid)
+            }
         }
         session.onCreateChildWebViewTab = { [weak self, weak session] configuration, initialURL in
             guard let self else { return nil }
             return self.openChildTab(
                 configuration: configuration,
                 initialURL: initialURL,
-                isPrivate: session?.isPrivate ?? false
+                isPrivate: session?.isPrivate ?? false,
+                profileID: session?.profileID,
+                openerTabID: session?.id
             )
         }
         session.onRequestCloseSelf = { [weak self, weak session] in
             guard let self, let id = session?.id else { return }
             self.closeTab(id: id)
         }
+        if let owningProfileID {
+            session.onRotateProfileFingerprintSeed = { [weak self] in
+                self?.rotateFingerprintSeed(forProfileID: owningProfileID)
+                    ?? FingerprintShieldEngine.generateCryptographicSeed()
+            }
+        }
+        session.onUpdateSiteRule = { [weak self] host, shieldMode, darkMode in
+            self?.updateSiteRule(
+                forHost: host,
+                shieldMode: shieldMode,
+                darkMode: darkMode,
+                profileID: owningProfileID,
+                isPrivate: sessionIsPrivate
+            )
+        }
     }
 
-    private func recordHistoryVisit(url: URL, title: String) {
+    private func recordHistoryVisit(url: URL, title: String, profileID: String) {
         let store = sqliteStore
         Task.detached(priority: .utility) { [weak self] in
-            store.recordVisit(url: url, title: title, visitedAt: Date())
-            let updatedTotal = store.totalCount()
+            store.recordVisit(url: url, title: title, visitedAt: Date(), profileID: profileID)
+            let updatedTotal = store.totalCount(profileID: profileID)
             let updatedVersion = store.dataVersion()
             await MainActor.run {
                 guard let self else { return }
-                self.totalHistoryCount = updatedTotal
+                if self.activeProfileID == profileID {
+                    self.totalHistoryCount = updatedTotal
+                }
                 self.lastObservedDataVersion = updatedVersion
                 self.historyRevision &+= 1
             }

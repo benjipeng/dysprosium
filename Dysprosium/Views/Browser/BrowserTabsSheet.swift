@@ -2,37 +2,89 @@ import SwiftUI
 import UIKit
 
 /// Responsive Safari / Chrome-style Visual Tab Card Grid with live `WKWebView` page thumbnails,
-/// `Standard` vs `Private` segmented scope switching, even column counts (`2` / `4`) across postures,
+/// multi-profile + orthogonal `Private` scope switching, even column counts (`2` / `4`) across postures,
 /// and a floating Liquid Glass bottom action bar.
 /// Strictly obeys Liquid Glass layering: cards use pure semantic surfaces (`secondarySystemGroupedBackground`),
 /// while `.glassEffect()` is confined exclusively to the floating bottom bar.
 struct BrowserTabsSheet: View {
-    private enum TabScope: String, CaseIterable, Identifiable {
-        case standard
+    private enum TabScope: Hashable {
+        case profile(String)
         case privateBrowsing
 
-        var id: String { rawValue }
+        var isPrivate: Bool {
+            if case .privateBrowsing = self { return true }
+            return false
+        }
+
+        var profileID: String? {
+            if case .profile(let id) = self { return id }
+            return nil
+        }
     }
 
     @Environment(\.dysprosiumTokens) private var tokens
     @Environment(\.dismiss) private var dismiss
     @Bindable var browserStore: CleanroomBrowserStore
 
-    @State private var selectedScope: TabScope = .standard
+    @State private var selectedScope: TabScope = .profile(BrowserProfile.defaultID)
+    @State private var lastSelectedProfileID: String = BrowserProfile.defaultID
     @State private var gridWidth: CGFloat = 460
     @State private var isConfirmingCloseAll: Bool = false
+    @State private var isShowingProfilesSheet: Bool = false
+    @State private var isShowingNewProfileSheet: Bool = false
     @Namespace private var glassScopeNamespace
 
-    private var standardTabs: [CleanroomWebKitSession] {
-        browserStore.tabs.filter { !$0.isPrivate }
+    private var selectedProfile: BrowserProfile {
+        let lookupID = selectedScope.profileID ?? lastSelectedProfileID
+        return browserStore.profile(for: lookupID) ?? browserStore.activeProfile
+    }
+
+    private var selectedProfileTabs: [CleanroomWebKitSession] {
+        browserStore.tabs(forProfileID: selectedProfile.id)
     }
 
     private var privateTabs: [CleanroomWebKitSession] {
-        browserStore.tabs.filter(\.isPrivate)
+        browserStore.privateTabs
     }
 
     private var visibleTabs: [CleanroomWebKitSession] {
-        selectedScope == .privateBrowsing ? privateTabs : standardTabs
+        selectedScope.isPrivate ? privateTabs : selectedProfileTabs
+    }
+
+    private var activeScopeTokens: DysprosiumTokens {
+        selectedProfile.tokens
+    }
+
+    private var sheetTitle: String {
+        if selectedScope.isPrivate {
+            return "Private Tabs"
+        }
+        if browserStore.isMultiProfileEnabled {
+            let count = visibleTabs.count
+            return "\(selectedProfile.name) · \(count) \(count == 1 ? "Tab" : "Tabs")"
+        }
+        return "Tabs"
+    }
+
+    /// Ordered carousel scopes `[Profile 1 ... K, Private]` for fluid horizontal swipe previews.
+    private var orderedScopes: [TabScope] {
+        browserStore.profiles.map { .profile($0.id) } + [.privateBrowsing]
+    }
+
+    private func selectScope(_ scope: TabScope) {
+        withAnimation(.spring(duration: 0.25, bounce: 0.08)) {
+            selectedScope = scope
+            if let pid = scope.profileID {
+                lastSelectedProfileID = pid
+            }
+        }
+    }
+
+    private func cycleScope(delta: Int) {
+        let scopes = orderedScopes
+        guard scopes.count > 1, let idx = scopes.firstIndex(of: selectedScope) else { return }
+        let nextIdx = ((idx + delta) % scopes.count + scopes.count) % scopes.count
+        selectScope(scopes[nextIdx])
     }
 
     /// Strict iPhone Duo even-column rule (`2` or `4`):
@@ -53,19 +105,24 @@ struct BrowserTabsSheet: View {
     var body: some View {
         NavigationStack {
             Group {
-                if visibleTabs.isEmpty && selectedScope == .privateBrowsing {
+                if visibleTabs.isEmpty && selectedScope.isPrivate {
                     privateEmptyState
+                } else if visibleTabs.isEmpty {
+                    profileEmptyState
                 } else {
                     ScrollView {
                         VStack(spacing: 12) {
-                            if selectedScope == .standard, !browserStore.recentlyClosedTabs.isEmpty {
-                                reopenClosedBanner
+                            if !selectedScope.isPrivate,
+                               !browserStore.recentlyClosedTabs(forProfileID: selectedProfile.id).isEmpty {
+                                reopenClosedBanner(forProfileID: selectedProfile.id)
                             }
 
                             LazyVGrid(columns: gridColumns, spacing: 12) {
                                 ForEach(visibleTabs) { tab in
                                     TabPreviewCardView(
                                         tab: tab,
+                                        profileAccent: activeScopeTokens.accent,
+                                        profileOnAccent: activeScopeTokens.onAccent,
                                         isActive: tab.id == browserStore.activeTabID,
                                         isFourColumn: isFourColumn,
                                         pdfAppearanceMode: browserStore.pdfAppearanceMode,
@@ -101,6 +158,15 @@ struct BrowserTabsSheet: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(.systemGroupedBackground))
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 36, coordinateSpace: .local)
+                    .onEnded { value in
+                        let dx = value.translation.width
+                        let dy = value.translation.height
+                        guard abs(dx) >= 56, abs(dx) > abs(dy) * 1.5 else { return }
+                        cycleScope(delta: dx < 0 ? 1 : -1)
+                    }
+            )
             .onGeometryChange(for: CGFloat.self) { geo in
                 geo.size.width
             } action: { newWidth in
@@ -109,39 +175,94 @@ struct BrowserTabsSheet: View {
             .safeAreaInset(edge: .bottom) {
                 bottomGlassActionBar
             }
-            .navigationTitle(selectedScope == .privateBrowsing ? "Private Tabs" : "Tabs")
+            .navigationTitle(sheetTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if browserStore.isMultiProfileEnabled {
+                        Button {
+                            isShowingProfilesSheet = true
+                        } label: {
+                            Label("Profiles", systemImage: "person.2")
+                                .symbolRenderingMode(.monochrome)
+                        }
+                        .accessibilityIdentifier("tabs-manage-profiles-button")
+                    } else {
+                        Button {
+                            isShowingNewProfileSheet = true
+                        } label: {
+                            Label("New Profile", systemImage: "person.crop.circle.badge.plus")
+                                .symbolRenderingMode(.monochrome)
+                        }
+                        .accessibilityIdentifier("tabs-new-profile-button")
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
+                    Button {
+                        if let targetPID = selectedScope.profileID {
+                            if targetPID != browserStore.activeProfileID || browserStore.activeSession.isPrivate {
+                                browserStore.switchToProfile(id: targetPID, activateTab: true)
+                            }
+                        } else if selectedScope.isPrivate,
+                                  !browserStore.activeSession.isPrivate,
+                                  let lastPrivate = privateTabs.last {
+                            browserStore.switchToTab(id: lastPrivate.id)
+                        }
                         dismiss()
+                    } label: {
+                        Label("Done", systemImage: "checkmark")
                     }
                 }
             }
+            .sensoryFeedback(.selection, trigger: selectedScope)
             .onAppear {
-                selectedScope = browserStore.activeSession.isPrivate ? .privateBrowsing : .standard
+                lastSelectedProfileID = browserStore.activeProfileID
+                selectedScope = browserStore.activeSession.isPrivate
+                    ? .privateBrowsing
+                    : .profile(browserStore.activeProfileID)
                 browserStore.prepareTabSwitcherPreviews()
             }
+            .onChange(of: browserStore.profiles) { _, updatedProfiles in
+                if let pid = selectedScope.profileID,
+                   !updatedProfiles.contains(where: { $0.id == pid }) {
+                    lastSelectedProfileID = browserStore.activeProfileID
+                    selectedScope = .profile(browserStore.activeProfileID)
+                }
+            }
+            .sheet(isPresented: $isShowingProfilesSheet) {
+                ProfileManagementSheet(browserStore: browserStore)
+            }
+            .sheet(isPresented: $isShowingNewProfileSheet) {
+                ProfileCreationSheet(browserStore: browserStore) { created in
+                    lastSelectedProfileID = created.id
+                    selectedScope = .profile(created.id)
+                }
+            }
             .confirmationDialog(
-                selectedScope == .privateBrowsing
+                selectedScope.isPrivate
                     ? "Close All \(visibleTabs.count) Private Tabs?"
-                    : "Close All \(visibleTabs.count) Tabs?",
+                    : (browserStore.isMultiProfileEnabled
+                        ? "Close All \(visibleTabs.count) Tabs in \(selectedProfile.name)?"
+                        : "Close All \(visibleTabs.count) Tabs?"),
                 isPresented: $isConfirmingCloseAll,
                 titleVisibility: .visible
             ) {
                 Button(
-                    selectedScope == .privateBrowsing
+                    selectedScope.isPrivate
                         ? "Close \(visibleTabs.count) Private Tabs"
                         : "Close \(visibleTabs.count) Tabs",
                     role: .destructive
                 ) {
                     withAnimation(.spring(duration: 0.28, bounce: 0.06)) {
-                        browserStore.closeAllTabs(isPrivate: selectedScope == .privateBrowsing)
+                        browserStore.closeAllTabs(
+                            isPrivate: selectedScope.isPrivate,
+                            profileID: selectedScope.profileID
+                        )
                     }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                if selectedScope == .privateBrowsing {
+                if selectedScope.isPrivate {
                     Text("Private tabs and their ephemeral session data will be discarded.")
                 } else {
                     Text("Closed tabs can be reopened from Recently Closed.")
@@ -152,6 +273,56 @@ struct BrowserTabsSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.scrolls)
+    }
+
+    private var profileEmptyState: some View {
+        let p = selectedProfile
+        let pTokens = p.tokens
+        return VStack(spacing: 14) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(pTokens.accentSubtleFill)
+                    .frame(width: 60, height: 60)
+                Image(systemName: p.symbolName)
+                    .symbolRenderingMode(.monochrome)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(pTokens.accent)
+            }
+
+            Text(p.name)
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            Text("No open tabs in \(p.name). Cookies, logins, history, and favorites are isolated from other profiles.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 320)
+
+            Button {
+                browserStore.openNewTab(isPrivate: false, activate: true, profileID: p.id)
+                dismiss()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                        .symbolRenderingMode(.monochrome)
+                    Text("New Tab in \(p.name)")
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(pTokens.onAccent)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+            .tint(pTokens.accent)
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .padding(.top, 4)
+
+            Spacer()
+        }
+        .padding(.horizontal, 24)
     }
 
     private var privateEmptyState: some View {
@@ -188,7 +359,7 @@ struct BrowserTabsSheet: View {
                     Text("New Private Tab")
                 }
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(tokens.onAccent)
+                .foregroundStyle(tokens.onPrivateAccent)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
@@ -204,6 +375,8 @@ struct BrowserTabsSheet: View {
 
     private var bottomGlassActionBar: some View {
         let isCompactWidth = gridWidth < 430
+        let profile = selectedProfile
+        let profileTokens = profile.tokens
         return GlassEffectContainer(spacing: 10) {
             HStack(spacing: isCompactWidth ? 8 : 10) {
                 if visibleTabs.count >= 2 {
@@ -222,29 +395,24 @@ struct BrowserTabsSheet: View {
                         }
                     }
                     .buttonStyle(.glass)
+                    .buttonBorderShape(isCompactWidth ? .circle : .capsule)
                     .accessibilityLabel("Close All")
                     .accessibilityIdentifier("tabs-close-all-button")
                 } else {
                     Color.clear
-                        .frame(width: 40, height: 36)
+                        .frame(width: 40, height: 40)
                         .allowsHitTesting(false)
                 }
 
                 Spacer(minLength: 4)
 
                 HStack(spacing: 4) {
-                    scopeSegmentButton(
-                        scope: .standard,
-                        title: "\(standardTabs.count) \(standardTabs.count == 1 ? "Tab" : "Tabs")",
-                        symbol: "square.on.square",
-                        activeColor: tokens.accent
+                    profileScopeSegment(
+                        profile: profile,
+                        profileTokens: profileTokens,
+                        isCompactWidth: isCompactWidth
                     )
-                    scopeSegmentButton(
-                        scope: .privateBrowsing,
-                        title: privateTabs.isEmpty ? "Private" : "Private (\(privateTabs.count))",
-                        symbol: "hand.raised.fill",
-                        activeColor: tokens.privateAccent
-                    )
+                    privateScopeSegment(isCompactWidth: isCompactWidth)
                 }
                 .padding(4)
                 .glassEffect(.regular.interactive(), in: Capsule())
@@ -253,21 +421,23 @@ struct BrowserTabsSheet: View {
 
                 Button {
                     browserStore.openNewTab(
-                        isPrivate: selectedScope == .privateBrowsing,
-                        activate: true
+                        isPrivate: selectedScope.isPrivate,
+                        activate: true,
+                        profileID: selectedScope.isPrivate ? nil : profile.id
                     )
                     dismiss()
                 } label: {
                     Label(
-                        selectedScope == .privateBrowsing ? "New Private Tab" : "New Tab",
+                        selectedScope.isPrivate ? "New Private Tab" : "New Tab",
                         systemImage: "plus"
                     )
                     .labelStyle(.iconOnly)
                     .font(.system(size: 17, weight: .bold))
-                    .frame(width: 22, height: 22)
+                    .frame(width: 24, height: 24)
                 }
-                .tint(selectedScope == .privateBrowsing ? tokens.privateAccent : tokens.accent)
+                .tint(selectedScope.isPrivate ? tokens.privateAccent : profileTokens.accent)
                 .buttonStyle(.glassProminent)
+                .buttonBorderShape(.circle)
                 .accessibilityIdentifier("tabs-new-tab-button")
             }
             .padding(.horizontal, isCompactWidth ? 12 : 16)
@@ -275,20 +445,133 @@ struct BrowserTabsSheet: View {
         }
     }
 
-    private func scopeSegmentButton(
-        scope: TabScope,
-        title: String,
-        symbol: String,
-        activeColor: Color
+    @ViewBuilder
+    private func profileScopeSegment(
+        profile: BrowserProfile,
+        profileTokens: DysprosiumTokens,
+        isCompactWidth: Bool
     ) -> some View {
-        let isSelected = (selectedScope == scope)
-        return Button {
-            withAnimation(.spring(duration: 0.25, bounce: 0.08)) {
-                selectedScope = scope
+        let isSelected = !selectedScope.isPrivate
+        let tabCount = selectedProfileTabs.count
+        let tabWord = tabCount == 1 ? "tab" : "tabs"
+
+        if !browserStore.isMultiProfileEnabled {
+            Button {
+                selectScope(.profile(profile.id))
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "square.on.square")
+                        .symbolRenderingMode(.monochrome)
+                        .font(.caption.weight(.semibold))
+                    Text("\(tabCount) \(tabCount == 1 ? "Tab" : "Tabs")")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                .foregroundStyle(isSelected ? profileTokens.onAccent : .primary)
+                .padding(.horizontal, isCompactWidth ? 10 : 12)
+                .padding(.vertical, 8.5)
+                .background {
+                    if isSelected {
+                        Capsule()
+                            .fill(profileTokens.accent)
+                            .matchedGeometryEffect(id: "active-tab-scope", in: glassScopeNamespace)
+                    }
+                }
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(tabCount) \(tabWord)")
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityIdentifier("tabs-scope-standard")
+        } else if isSelected {
+            Menu {
+                ProfileSwitcherMenuContent(
+                    browserStore: browserStore,
+                    selectedProfileID: profile.id,
+                    onSelectProfile: { nextID in
+                        selectScope(.profile(nextID))
+                    },
+                    onNewProfile: {
+                        isShowingNewProfileSheet = true
+                    },
+                    onManageProfiles: {
+                        isShowingProfilesSheet = true
+                    }
+                )
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: profile.symbolName)
+                        .symbolRenderingMode(.monochrome)
+                        .font(.caption.weight(.semibold))
+                    Text(profile.name)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(-1)
+                    Text("· \(tabCount)")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .fixedSize(horizontal: true, vertical: false)
+                    Image(systemName: "chevron.down")
+                        .symbolRenderingMode(.monochrome)
+                        .font(.system(size: 8.5, weight: .bold))
+                }
+                .foregroundStyle(profileTokens.onAccent)
+                .padding(.horizontal, isCompactWidth ? 9 : 12)
+                .padding(.vertical, 8.5)
+                .background {
+                    Capsule()
+                        .fill(profileTokens.accent)
+                        .matchedGeometryEffect(id: "active-tab-scope", in: glassScopeNamespace)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(profile.name), \(tabCount) \(tabWord)")
+            .accessibilityHint("Switch profile")
+            .accessibilityAddTraits(.isSelected)
+            .accessibilityIdentifier("tabs-scope-profile-menu")
+        } else {
+            Button {
+                selectScope(.profile(profile.id))
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: profile.symbolName)
+                        .symbolRenderingMode(.monochrome)
+                        .font(.caption.weight(.semibold))
+                    Text(profile.name)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(-1)
+                    Text("· \(tabCount)")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, isCompactWidth ? 9 : 12)
+                .padding(.vertical, 8.5)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(profile.name), \(tabCount) \(tabWord)")
+            .accessibilityIdentifier("tabs-scope-profile-button")
+        }
+    }
+
+    private func privateScopeSegment(isCompactWidth: Bool) -> some View {
+        let isSelected = selectedScope.isPrivate
+        let count = privateTabs.count
+        let title: String
+        if count == 0 {
+            title = "Private"
+        } else if isCompactWidth && browserStore.isMultiProfileEnabled {
+            title = "Private · \(count)"
+        } else {
+            title = "Private (\(count))"
+        }
+        return Button {
+            selectScope(.privateBrowsing)
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: symbol)
+                Image(systemName: "hand.raised.fill")
                     .symbolRenderingMode(.monochrome)
                     .font(.caption.weight(.semibold))
                 Text(title)
@@ -296,33 +579,37 @@ struct BrowserTabsSheet: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            .foregroundStyle(isSelected ? tokens.onAccent : .primary)
-            .padding(.horizontal, gridWidth < 430 ? 10 : 12)
-            .padding(.vertical, 7)
+            .foregroundStyle(isSelected ? tokens.onPrivateAccent : .primary)
+            .padding(.horizontal, isCompactWidth ? 9 : 12)
+            .padding(.vertical, 8.5)
             .background {
                 if isSelected {
                     Capsule()
-                        .fill(activeColor)
-                        .glassEffectID("active-tab-scope", in: glassScopeNamespace)
+                        .fill(tokens.privateAccent)
+                        .matchedGeometryEffect(id: "active-tab-scope", in: glassScopeNamespace)
                 }
             }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(count == 0 ? "Private" : "Private, \(count) \(count == 1 ? "tab" : "tabs")")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("tabs-scope-private")
     }
 
     @ViewBuilder
-    private var reopenClosedBanner: some View {
-        if let latest = browserStore.recentlyClosedTabs.first {
+    private func reopenClosedBanner(forProfileID profileID: String) -> some View {
+        let closedStack = browserStore.recentlyClosedTabs(forProfileID: profileID)
+        if let latest = closedStack.first {
             HStack(spacing: 8) {
                 Button {
-                    _ = browserStore.reopenLastClosedTab()
+                    _ = browserStore.reopenLastClosedTab(profileID: profileID)
                     dismiss()
                 } label: {
                     HStack(spacing: 7) {
                         Image(systemName: "arrow.uturn.backward")
                             .symbolRenderingMode(.monochrome)
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(tokens.accent)
+                            .foregroundStyle(activeScopeTokens.accent)
 
                         Text("Reopen Closed")
                             .font(.caption.weight(.semibold))
@@ -342,11 +629,16 @@ struct BrowserTabsSheet: View {
 
                 Spacer(minLength: 4)
 
-                if browserStore.recentlyClosedTabs.count > 1 {
+                if closedStack.count > 1 {
                     Menu {
-                        ForEach(browserStore.recentlyClosedTabs) { entry in
+                        ForEach(closedStack) { entry in
                             Button {
-                                browserStore.openNewTab(urlString: entry.urlString, isPrivate: false, activate: true)
+                                browserStore.openNewTab(
+                                    urlString: entry.urlString,
+                                    isPrivate: false,
+                                    activate: true,
+                                    profileID: profileID
+                                )
                                 dismiss()
                             } label: {
                                 Label(entry.title, systemImage: "globe")
@@ -354,13 +646,13 @@ struct BrowserTabsSheet: View {
                         }
                         Divider()
                         Button(role: .destructive) {
-                            browserStore.clearRecentlyClosedTabs()
+                            browserStore.clearRecentlyClosedTabs(profileID: profileID)
                         } label: {
                             Label("Clear Recently Closed", systemImage: "trash")
                         }
                     } label: {
                         HStack(spacing: 3) {
-                            Text("\(browserStore.recentlyClosedTabs.count)")
+                            Text("\(closedStack.count)")
                                 .font(.caption2.monospacedDigit().weight(.semibold))
                             Image(systemName: "chevron.down")
                                 .symbolRenderingMode(.monochrome)
@@ -393,6 +685,8 @@ struct BrowserTabsSheet: View {
 private struct TabPreviewCardView: View {
     @Environment(\.dysprosiumTokens) private var tokens
     let tab: CleanroomWebKitSession
+    let profileAccent: Color
+    let profileOnAccent: Color
     let isActive: Bool
     let isFourColumn: Bool
     let pdfAppearanceMode: PDFAppearanceMode
@@ -403,7 +697,11 @@ private struct TabPreviewCardView: View {
     let onClose: () -> Void
 
     private var activeTint: Color {
-        tab.isPrivate ? tokens.privateAccent : tokens.accent
+        tab.isPrivate ? tokens.privateAccent : profileAccent
+    }
+
+    private var activeOnTint: Color {
+        tab.isPrivate ? tokens.onPrivateAccent : profileOnAccent
     }
 
     private var isStartPage: Bool {
@@ -415,6 +713,9 @@ private struct TabPreviewCardView: View {
     }
 
     private var viewportCanvasColor: Color {
+        if isStartPage {
+            return Color(.systemGroupedBackground)
+        }
         if tab.activePDF != nil {
             return Color(uiColor: pdfAppearanceMode.canvasUIColor)
         }
@@ -576,7 +877,7 @@ private struct TabPreviewCardView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground).opacity(0.65))
+        .background(Color(.systemGroupedBackground))
     }
 
     private var unhydratedPagePlaceholder: some View {
@@ -636,7 +937,7 @@ private struct TabPreviewCardView: View {
                     Text("\(tab.mediaGroups.count)")
                         .font(.system(size: 9.5, weight: .bold).monospacedDigit())
                 }
-                .foregroundStyle(tokens.onAccent)
+                .foregroundStyle(activeOnTint)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2.5)
                 .background(activeTint, in: Capsule())

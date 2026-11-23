@@ -77,6 +77,12 @@ struct FingerprintLabView: View {
                 Task { await runSelectedAudit() }
             }
         }
+        .onChange(of: browserStore.activeProfileID) { _, _ in
+            Task { await runSelectedAudit() }
+        }
+        .onChange(of: fingerprintShield.isEnabled) { _, _ in
+            browserStore.refreshLiveUserAgentsForFingerprintShieldToggle()
+        }
         .navigationTitle("Fingerprint Lab")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, prompt: "Filter signals…")
@@ -167,7 +173,11 @@ struct FingerprintLabView: View {
                 identitySpecimenRow(snapshot: snapshot)
             }
         } header: {
-            Text("Session Specimen")
+            Text(
+                selectedMode == .standard && browserStore.isMultiProfileEnabled
+                    ? "Session Specimen · \(browserStore.activeProfile.name)"
+                    : "Session Specimen"
+            )
         } footer: {
             Text("Runs 100% locally inside a CSP-locked WKWebView with zero network requests. Switch modes or fold/unfold displays, then tap Re-run to compare.")
         }
@@ -297,10 +307,18 @@ struct FingerprintLabView: View {
 
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Active Persona & Seed")
-                        .font(.subheadline)
-                    let persona = fingerprintShield.currentStandardPersona(for: browserStore.userAgentProfile)
-                    Text("\(fingerprintShield.shortSeedSpecimen) · \(persona.shortLabel)")
+                    Text(
+                        browserStore.isMultiProfileEnabled
+                            ? "Active Persona · \(browserStore.activeProfile.name)"
+                            : "Active Persona & Seed"
+                    )
+                    .font(.subheadline)
+                    let activeProfile = browserStore.activeProfile
+                    let persona = FingerprintShieldEngine.persona(
+                        forSeed: activeProfile.fingerprintSeed,
+                        profile: browserStore.userAgentProfile
+                    )
+                    Text("\(activeProfile.shortSeedSpecimen) · \(persona.shortLabel)")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -309,7 +327,7 @@ struct FingerprintLabView: View {
                 Spacer()
 
                 Button {
-                    fingerprintShield.rotateStandardSeed()
+                    _ = browserStore.rotateFingerprintSeed(forProfileID: browserStore.activeProfileID)
                     Task { await runSelectedAudit() }
                 } label: {
                     Label("Rotate Seed", systemImage: "arrow.trianglehead.2.clockwise")
@@ -620,10 +638,14 @@ struct FingerprintLabView: View {
         } else {
             resolvedSize = CGSize(width: 393, height: 852)
         }
+        let scopedSeed: String? = (selectedMode == .standard && fingerprintShield.isEnabled)
+            ? browserStore.activeProfile.fingerprintSeed
+            : nil
         await engine.runAudit(
             mode: selectedMode,
             viewportSize: resolvedSize,
-            userAgentProfile: browserStore.userAgentProfile
+            userAgentProfile: browserStore.userAgentProfile,
+            customSeed: scopedSeed
         )
     }
 }

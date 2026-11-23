@@ -208,15 +208,50 @@ public final class FingerprintShieldEngine {
         guard let previousSeed, !previousSeed.isEmpty else {
             return generateCryptographicSeed()
         }
-        let prev = persona(forSeed: previousSeed, profile: profile)
-        for _ in 0..<24 {
+        return generateDistinctCryptographicSeed(avoidingSeeds: [previousSeed], profile: profile)
+    }
+
+    /// Generates a fresh 256-bit CSPRNG hex seed whose `(Safari build, screenClass)` persona bucket
+    /// does not collide with any seed in `avoidingSeeds` (de-collides across multi-profile personas).
+    public nonisolated static func generateDistinctCryptographicSeed(
+        avoidingSeeds: Set<String>,
+        profile: BrowserUserAgentProfile = .iosSafari
+    ) -> String {
+        let cleanSeeds = avoidingSeeds.filter { !$0.isEmpty }
+        guard !cleanSeeds.isEmpty else {
+            return generateCryptographicSeed()
+        }
+        let existingPersonas = cleanSeeds.map { persona(forSeed: $0, profile: profile) }
+        let usedBuckets = Set(existingPersonas.map { "\($0.userAgent)|\($0.preferredIndex)" })
+        let usedUAs = Set(existingPersonas.map(\.userAgent))
+        let usedScreens = Set(existingPersonas.map(\.preferredIndex))
+
+        // First preference: strictly distinct UA AND strictly distinct screen index (ideal when <= 5 profiles).
+        for _ in 0..<32 {
             let candidate = generateCryptographicSeed()
             let next = persona(forSeed: candidate, profile: profile)
-            if next.userAgent != prev.userAgent && next.preferredIndex != prev.preferredIndex {
+            if !usedUAs.contains(next.userAgent) && !usedScreens.contains(next.preferredIndex) {
+                return candidate
+            }
+        }
+        // Fallback when 6 profiles exhaust individual UA/screen slots: avoid any exact (UA, screen) bucket pair.
+        for _ in 0..<32 {
+            let candidate = generateCryptographicSeed()
+            let next = persona(forSeed: candidate, profile: profile)
+            if !usedBuckets.contains("\(next.userAgent)|\(next.preferredIndex)") {
                 return candidate
             }
         }
         return generateCryptographicSeed()
+    }
+
+    /// Synchronizes the cached Default-profile standard seed without triggering a full controller reapply
+    /// (used when `CleanroomBrowserStore` owns per-profile seed rotation in SQLite).
+    public func syncStandardSeed(_ seed: String) {
+        guard seed.count >= 32, standardSeed != seed else { return }
+        standardSeed = seed
+        lastRotatedAt = Date()
+        LiveContainerEnvironment.sharedDefaults.set(seed, forKey: DefaultsKey.standardSeed)
     }
 
     /// Rotates the active Standard session seed immediately and refreshes all open WebViews
@@ -293,7 +328,7 @@ public final class FingerprintShieldEngine {
             forMainFrameOnly: false,
             in: .page
         )
-        if userScriptCache.count >= 8 {
+        if userScriptCache.count >= 16 {
             userScriptCache.removeAll(keepingCapacity: true)
         }
         userScriptCache[key] = script

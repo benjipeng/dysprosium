@@ -54,6 +54,7 @@ struct ClearBrowsingDataSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dysprosiumTokens) private var tokens
     @Bindable var browserStore: CleanroomBrowserStore
+    let targetProfileID: String?
 
     @State private var selectedPreset: BrowsingClearTimePreset
     @State private var customCutoffDate: Date = Date().addingTimeInterval(-3_600 * 6)
@@ -70,10 +71,24 @@ struct ClearBrowsingDataSheet: View {
 
     init(
         browserStore: CleanroomBrowserStore,
-        initialPreset: BrowsingClearTimePreset = .lastHour
+        initialPreset: BrowsingClearTimePreset = .lastHour,
+        targetProfileID: String? = nil
     ) {
         self.browserStore = browserStore
+        self.targetProfileID = targetProfileID
         _selectedPreset = State(initialValue: initialPreset)
+    }
+
+    private var resolvedProfileID: String {
+        targetProfileID ?? browserStore.activeProfileID
+    }
+
+    private var resolvedProfile: BrowserProfile {
+        browserStore.profile(for: resolvedProfileID) ?? browserStore.activeProfile
+    }
+
+    private var targetTokens: DysprosiumTokens {
+        resolvedProfile.tokens
     }
 
     private var activeCutoffDate: Date {
@@ -81,7 +96,7 @@ struct ClearBrowsingDataSheet: View {
     }
 
     private var standardTabCount: Int {
-        browserStore.tabs.filter { !$0.isPrivate }.count
+        browserStore.tabs(forProfileID: resolvedProfileID).count
     }
 
     private var hasAnyScopeSelected: Bool {
@@ -100,7 +115,7 @@ struct ClearBrowsingDataSheet: View {
             parts.append("Cookies & Logins")
         }
         if closeStandardTabs {
-            parts.append("\(standardTabCount) Tabs")
+            parts.append("\(standardTabCount) \(standardTabCount == 1 ? "Tab" : "Tabs")")
         }
         return parts.joined(separator: ", ")
     }
@@ -122,13 +137,13 @@ struct ClearBrowsingDataSheet: View {
             details.append("\(report.historyEntriesRemoved) history")
         }
         if report.websiteRecordsRemoved > 0 {
-            details.append("\(report.websiteRecordsRemoved) site records")
+            details.append("\(report.websiteRecordsRemoved) site \(report.websiteRecordsRemoved == 1 ? "record" : "records")")
         }
         if report.cookiesRemoved > 0 {
-            details.append("\(report.cookiesRemoved) cookies")
+            details.append("\(report.cookiesRemoved) \(report.cookiesRemoved == 1 ? "cookie" : "cookies")")
         }
         if report.closedTabCount > 0 {
-            details.append("\(report.closedTabCount) tabs closed")
+            details.append("\(report.closedTabCount) \(report.closedTabCount == 1 ? "tab" : "tabs") closed")
         }
         return details.isEmpty ? nil : details.joined(separator: " · ")
     }
@@ -136,6 +151,30 @@ struct ClearBrowsingDataSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                if browserStore.isMultiProfileEnabled {
+                    let profileTokens = resolvedProfile.tokens
+                    Section {
+                        HStack(spacing: 10) {
+                            Image(systemName: resolvedProfile.symbolName)
+                                .symbolRenderingMode(.monochrome)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(profileTokens.accent)
+                                .frame(width: 28, height: 28)
+                                .background(profileTokens.accentSubtleFill, in: Circle())
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Profile: \(resolvedProfile.name)")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text("Downloads Vault and other profiles remain untouched.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+
                 // 1. Live Storage Footprint & Per-Site Website Data Manager
                 Section {
                     if let report = lastClearReport {
@@ -177,7 +216,7 @@ struct ClearBrowsingDataSheet: View {
                         if let footprint {
                             Text(formatStorageBytes(footprint.totalBytes))
                                 .font(.title3.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(tokens.accent)
+                                .foregroundStyle(targetTokens.accent)
                                 .accessibilityIdentifier("clear-data-total-footprint")
                         } else if isLoadingFootprint {
                             ProgressView()
@@ -208,7 +247,10 @@ struct ClearBrowsingDataSheet: View {
                     )
 
                     NavigationLink {
-                        WebsiteDataManagerView(browserStore: browserStore) {
+                        WebsiteDataManagerView(
+                            browserStore: browserStore,
+                            targetProfileID: resolvedProfileID
+                        ) {
                             await reloadFootprint()
                         }
                     } label: {
@@ -312,7 +354,9 @@ struct ClearBrowsingDataSheet: View {
                             icon: "xmark.square",
                             title: "Close Open Tabs (\(standardTabCount))",
                             badge: nil,
-                            subtitle: "Closes all standard tabs, clears recently closed tabs, and resets back/forward history.",
+                            subtitle: browserStore.isMultiProfileEnabled
+                                ? "Closes all open tabs in \(resolvedProfile.name), clears its recently closed tabs, and resets back/forward history."
+                                : "Closes all standard tabs, clears recently closed tabs, and resets back/forward history.",
                             isDestructiveWarning: false
                         )
                     }
@@ -354,13 +398,20 @@ struct ClearBrowsingDataSheet: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(lastClearReport != nil ? "Done" : "Cancel") {
+                    Button {
                         dismiss()
+                    } label: {
+                        Label(
+                            lastClearReport != nil ? "Done" : "Cancel",
+                            systemImage: lastClearReport != nil ? "checkmark" : "xmark"
+                        )
                     }
                 }
             }
             .confirmationDialog(
-                "Clear \(confirmationSummaryText)?",
+                browserStore.isMultiProfileEnabled
+                    ? "Clear \(confirmationSummaryText) in \(resolvedProfile.name)?"
+                    : "Clear \(confirmationSummaryText)?",
                 isPresented: $isConfirmingClear,
                 titleVisibility: .visible
             ) {
@@ -374,7 +425,11 @@ struct ClearBrowsingDataSheet: View {
                         closeStandardTabs: closeStandardTabs
                     )
                     Task { @MainActor in
-                        let report = await browserStore.performClearBrowsingData(since: cutoff, options: opts)
+                        let report = await browserStore.performClearBrowsingData(
+                            since: cutoff,
+                            options: opts,
+                            profileID: resolvedProfileID
+                        )
                         await reloadFootprint()
                         await reloadMatchingHistoryCount()
                         withAnimation(.snappy(duration: 0.22)) {
@@ -398,7 +453,7 @@ struct ClearBrowsingDataSheet: View {
     @MainActor
     private func reloadFootprint() async {
         isLoadingFootprint = true
-        let measured = await browserStore.computeStorageFootprint()
+        let measured = await browserStore.computeStorageFootprint(profileID: resolvedProfileID)
         if !Task.isCancelled {
             footprint = measured
             isLoadingFootprint = false
@@ -409,8 +464,9 @@ struct ClearBrowsingDataSheet: View {
     private func reloadMatchingHistoryCount() async {
         let store = browserStore.historyStore
         let cutoff = activeCutoffDate
+        let pid = resolvedProfileID
         let count = await Task.detached(priority: .userInitiated) {
-            store.countEntries(since: cutoff)
+            store.countEntries(since: cutoff, profileID: pid)
         }.value
         if !Task.isCancelled {
             matchingHistoryCount = count
@@ -437,7 +493,7 @@ struct ClearBrowsingDataSheet: View {
             Image(systemName: icon)
                 .symbolRenderingMode(.monochrome)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(isDestructiveWarning ? tokens.statusDanger : tokens.accent)
+                .foregroundStyle(isDestructiveWarning ? targetTokens.statusDanger : targetTokens.accent)
                 .frame(width: 20, alignment: .center)
                 .padding(.top, 2)
 
@@ -469,7 +525,20 @@ struct ClearBrowsingDataSheet: View {
 struct WebsiteDataManagerView: View {
     @Environment(\.dysprosiumTokens) private var tokens
     @Bindable var browserStore: CleanroomBrowserStore
+    var targetProfileID: String? = nil
     var onDidMutate: (@MainActor () async -> Void)? = nil
+
+    private var resolvedProfileID: String {
+        targetProfileID ?? browserStore.activeProfileID
+    }
+
+    private var resolvedProfile: BrowserProfile {
+        browserStore.profile(for: resolvedProfileID) ?? browserStore.activeProfile
+    }
+
+    private var targetTokens: DysprosiumTokens {
+        resolvedProfile.tokens
+    }
 
     @State private var domains: [WebsiteDataDomainSummary] = []
     @State private var isLoading: Bool = true
@@ -578,7 +647,11 @@ struct WebsiteDataManagerView: View {
         .listStyle(.insetGrouped)
         .listSectionSpacing(DysprosiumTokens.Space.sectionSpacing)
         .searchable(text: $searchQuery, prompt: "Filter websites…")
-        .navigationTitle("Website Data")
+        .navigationTitle(
+            browserStore.isMultiProfileEnabled
+                ? "Website Data · \(resolvedProfile.name)"
+                : "Website Data"
+        )
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadDomains()
@@ -587,7 +660,9 @@ struct WebsiteDataManagerView: View {
             await loadDomains()
         }
         .confirmationDialog(
-            "Remove All Website Data?",
+            browserStore.isMultiProfileEnabled
+                ? "Remove All Website Data in \(resolvedProfile.name)?"
+                : "Remove All Website Data?",
             isPresented: $isConfirmingRemoveAll,
             titleVisibility: .visible
         ) {
@@ -596,7 +671,11 @@ struct WebsiteDataManagerView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Deletes all site cookies, HttpOnly login sessions, LocalStorage, caches, and service workers. This cannot be undone.")
+            Text(
+                browserStore.isMultiProfileEnabled
+                    ? "Deletes all site cookies, HttpOnly login sessions, LocalStorage, caches, and service workers in \(resolvedProfile.name). Other profiles are untouched."
+                    : "Deletes all site cookies, HttpOnly login sessions, LocalStorage, caches, and service workers. This cannot be undone."
+            )
         }
     }
 
@@ -615,7 +694,7 @@ struct WebsiteDataManagerView: View {
             if domain.hasCookies || hasStorage || domain.hasCache || hasWorkers {
                 HStack(spacing: 5) {
                     if domain.hasCookies {
-                        categoryTag("Cookies", foreground: tokens.accent, background: tokens.accentSubtleFill)
+                        categoryTag("Cookies", foreground: targetTokens.accent, background: targetTokens.accentSubtleFill)
                     }
                     if hasStorage {
                         categoryTag("Storage", foreground: .primary, background: Color(.tertiarySystemFill))
@@ -644,7 +723,7 @@ struct WebsiteDataManagerView: View {
     @MainActor
     private func loadDomains() async {
         isLoading = true
-        let fetched = await browserStore.fetchWebsiteDataDomains()
+        let fetched = await browserStore.fetchWebsiteDataDomains(profileID: resolvedProfileID)
         if !Task.isCancelled {
             domains = fetched
             isLoading = false
@@ -657,8 +736,8 @@ struct WebsiteDataManagerView: View {
             domains.removeAll { $0.id == domain.id }
         }
         Task { @MainActor in
-            await browserStore.removeWebsiteData(forDisplayNames: [targetName])
-            let updated = await browserStore.fetchWebsiteDataDomains()
+            await browserStore.removeWebsiteData(forDisplayNames: [targetName], profileID: resolvedProfileID)
+            let updated = await browserStore.fetchWebsiteDataDomains(profileID: resolvedProfileID)
             withAnimation(.snappy(duration: 0.2)) {
                 domains = updated
             }
@@ -671,8 +750,8 @@ struct WebsiteDataManagerView: View {
         guard !names.isEmpty else { return }
         isRemovingAll = true
         Task { @MainActor in
-            await browserStore.removeWebsiteData(forDisplayNames: names)
-            let updated = await browserStore.fetchWebsiteDataDomains()
+            await browserStore.removeWebsiteData(forDisplayNames: names, profileID: resolvedProfileID)
+            let updated = await browserStore.fetchWebsiteDataDomains(profileID: resolvedProfileID)
             withAnimation(.snappy(duration: 0.22)) {
                 domains = updated
                 isRemovingAll = false

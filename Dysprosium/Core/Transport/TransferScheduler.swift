@@ -139,10 +139,18 @@ public final class TransferScheduler {
         )
     }
 
-    /// Scrubs `Cookie`/`Authorization` headers from in-memory and persisted transfer records,
-    /// compacts/truncates `dysprosium_state.sqlite3`, and reclaims orphaned staging files.
-    public func scrubPersistedAuthDataAndOrphanedStaging() {
+    /// Scrubs `Cookie`/`Authorization` headers from in-memory and persisted transfer records
+    /// (optionally scoped to `matchingProfileID`), compacts/truncates `dysprosium_state.sqlite3`,
+    /// and reclaims orphaned staging files.
+    public func scrubPersistedAuthDataAndOrphanedStaging(matchingProfileID: String? = nil) {
         for idx in jobs.indices {
+            if let matchingProfileID {
+                let jobProfileID = jobs[idx].sourceProfileID
+                let matches = (matchingProfileID == BrowserProfile.defaultID)
+                    ? (jobProfileID == nil || jobProfileID == matchingProfileID)
+                    : (jobProfileID == matchingProfileID)
+                guard matches else { continue }
+            }
             let scrubbed = jobs[idx].strippingAuthHeaders()
             if scrubbed != jobs[idx] {
                 jobs[idx] = scrubbed
@@ -151,7 +159,7 @@ public final class TransferScheduler {
         let storeRef = self.store
         let protectedIDs = self.resumableTransferIDs
         Task.detached(priority: .utility) {
-            await storeRef?.scrubStoredAuthHeaders()
+            await storeRef?.scrubStoredAuthHeaders(matchingProfileID: matchingProfileID)
             await storeRef?.reclaimStorage()
             _ = LiveContainerEnvironment.reclaimOrphanedTemporaryFiles(
                 activeTransferIDs: protectedIDs,
@@ -173,7 +181,8 @@ public final class TransferScheduler {
         lanes: Int? = nil,
         headers: [String: String] = [:],
         suggestedTitle: String? = nil,
-        preloadedManifestText: String? = nil
+        preloadedManifestText: String? = nil,
+        sourceProfileID: String? = nil
     ) -> TransferJob {
         let configuredLanes = lanes ?? defaultLanesPerTransfer
         var prebuiltPlan: ResolvedTransferPlan?
@@ -263,7 +272,8 @@ public final class TransferScheduler {
             siteDomain: prebuiltPlan?.siteDomain ?? siteDomainOverride,
             kind: resolvedKind,
             configuredLanes: configuredLanes,
-            initialHeaders: headers
+            initialHeaders: headers,
+            sourceProfileID: sourceProfileID
         )
         job.plan = prebuiltPlan
         job.totalBytes = expectedTotalBytes
@@ -436,7 +446,8 @@ public final class TransferScheduler {
             siteDomainOverride: job.siteDomain,
             lanes: job.configuredLanes,
             headers: job.initialHeaders,
-            suggestedTitle: job.title
+            suggestedTitle: job.title,
+            sourceProfileID: job.sourceProfileID
         )
     }
 

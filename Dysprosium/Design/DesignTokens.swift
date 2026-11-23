@@ -58,6 +58,8 @@ public struct DysprosiumTokens: Sendable {
     public let accentHarmonic: Color
     /// High-contrast foreground ink (`#FFFFFF` or `#101318`) guaranteed legible on solid `accent` fills.
     public let onAccent: Color
+    /// Dynamic upper highlight color for tactile circular palette swatches (adapts cleanly for Light/Dark Obsidian).
+    public let swatchHighlight: Color
     /// Calibrated low-opacity pill & icon-well background (`~11%` Light / `~18%` Dark).
     public let accentSubtleFill: Color
 
@@ -79,6 +81,8 @@ public struct DysprosiumTokens: Sendable {
     public let bookmarkStar: Color
     /// Ephemeral Private Mode accent (`#4338CA` Light / `#818CF8` Dark).
     public let privateAccent: Color
+    /// High-contrast ink guaranteed legible on solid `privateAccent` fills across every profile preset.
+    public let onPrivateAccent: Color
     public let privateSubtleFill: Color
 
     // MARK: - Semantic Status Tokens
@@ -106,6 +110,7 @@ public struct DysprosiumTokens: Sendable {
         self.accent = Self.dynamicColor(light: spec.lightAccent, dark: spec.darkAccent)
         self.accentHarmonic = Self.dynamicColor(light: spec.lightHarmonic, dark: spec.darkHarmonic)
         self.onAccent = Self.dynamicColor(light: spec.lightOnAccent, dark: spec.darkOnAccent)
+        self.swatchHighlight = Self.dynamicColor(light: spec.lightSwatchHighlight, dark: spec.darkSwatchHighlight)
         self.accentSubtleFill = Self.dynamicColor(
             light: spec.lightAccent.withAlpha(0.11),
             dark: spec.darkAccent.withAlpha(0.18)
@@ -132,6 +137,10 @@ public struct DysprosiumTokens: Sendable {
         self.privateAccent = Self.dynamicColor(
             light: RGBA(0.26, 0.22, 0.79, 1.0),
             dark: RGBA(0.51, 0.55, 0.97, 1.0)
+        )
+        self.onPrivateAccent = Self.dynamicColor(
+            light: RGBA(1.0, 1.0, 1.0, 1.0),
+            dark: RGBA(0.05, 0.04, 0.14, 1.0)
         )
         self.privateSubtleFill = Self.dynamicColor(
             light: RGBA(0.26, 0.22, 0.79, 0.11),
@@ -188,6 +197,8 @@ public struct DysprosiumTokens: Sendable {
         let darkHarmonic: RGBA
         let lightOnAccent: RGBA
         let darkOnAccent: RGBA
+        let lightSwatchHighlight: RGBA
+        let darkSwatchHighlight: RGBA
         let waferBackTop: RGBA
         let waferBackBottom: RGBA
         let waferMidTop: RGBA
@@ -215,6 +226,8 @@ public struct DysprosiumTokens: Sendable {
                 darkHarmonic: RGBA(0.18, 0.90, 0.71),
                 lightOnAccent: white,
                 darkOnAccent: RGBA(0.04, 0.09, 0.14),
+                lightSwatchHighlight: RGBA(0.14, 0.62, 0.88),
+                darkSwatchHighlight: RGBA(0.36, 0.88, 1.00),
                 waferBackTop: RGBA(0.28, 0.35, 0.95),
                 waferBackBottom: RGBA(0.16, 0.21, 0.75),
                 waferMidTop: RGBA(0.20, 0.86, 0.98),
@@ -228,7 +241,9 @@ public struct DysprosiumTokens: Sendable {
                 lightHarmonic: RGBA(0.31, 0.27, 0.90),
                 darkHarmonic: RGBA(0.58, 0.51, 1.00),
                 lightOnAccent: white,
-                darkOnAccent: white,
+                darkOnAccent: RGBA(0.04, 0.07, 0.14),
+                lightSwatchHighlight: RGBA(0.28, 0.48, 0.96),
+                darkSwatchHighlight: RGBA(0.56, 0.72, 1.00),
                 waferBackTop: RGBA(0.38, 0.24, 0.92),
                 waferBackBottom: RGBA(0.24, 0.14, 0.70),
                 waferMidTop: RGBA(0.32, 0.56, 1.00),
@@ -243,6 +258,8 @@ public struct DysprosiumTokens: Sendable {
                 darkHarmonic: RGBA(0.18, 0.84, 0.75),
                 lightOnAccent: white,
                 darkOnAccent: RGBA(0.03, 0.11, 0.08),
+                lightSwatchHighlight: RGBA(0.14, 0.66, 0.46),
+                darkSwatchHighlight: RGBA(0.36, 0.92, 0.70),
                 waferBackTop: RGBA(0.06, 0.46, 0.52),
                 waferBackBottom: RGBA(0.04, 0.30, 0.38),
                 waferMidTop: RGBA(0.22, 0.88, 0.64),
@@ -257,6 +274,8 @@ public struct DysprosiumTokens: Sendable {
                 darkHarmonic: RGBA(1.00, 0.64, 0.28),
                 lightOnAccent: white,
                 darkOnAccent: RGBA(0.14, 0.05, 0.03),
+                lightSwatchHighlight: RGBA(0.92, 0.40, 0.22),
+                darkSwatchHighlight: RGBA(1.00, 0.58, 0.40),
                 waferBackTop: RGBA(0.64, 0.16, 0.28),
                 waferBackBottom: RGBA(0.42, 0.09, 0.18),
                 waferMidTop: RGBA(1.00, 0.52, 0.26),
@@ -271,6 +290,8 @@ public struct DysprosiumTokens: Sendable {
                 darkHarmonic: RGBA(0.60, 0.66, 0.74),
                 lightOnAccent: white,
                 darkOnAccent: RGBA(0.07, 0.08, 0.11),
+                lightSwatchHighlight: RGBA(0.26, 0.29, 0.36),
+                darkSwatchHighlight: RGBA(0.74, 0.78, 0.84),
                 waferBackTop: RGBA(0.30, 0.34, 0.40),
                 waferBackBottom: RGBA(0.18, 0.20, 0.25),
                 waferMidTop: RGBA(0.62, 0.67, 0.74),
@@ -326,38 +347,76 @@ public final class DysprosiumThemeStore {
     }
 }
 
-/// Compact single-row tactile swatch bar for choosing the app-wide Lanthanide Design Token palette.
-/// Uses flat grouped surfaces (zero `.glassEffect()` on list content) for 120 Hz scrolling.
+/// Unified single-row tactile swatch bar for choosing a Lanthanide Design Token palette.
+/// Shared across `EngineStatusView`, `ProfileCreationSheet`, and `ProfileEditorView`
+/// (zero `.glassEffect()` on list content, >= 44 pt hit targets, truncation-safe 2-line header).
 public struct DysprosiumPaletteSelectorRows: View {
     @Bindable var themeStore: DysprosiumThemeStore
+    let explicitSelection: DysprosiumPalettePreset?
+    let title: String
+    let profileContextName: String?
+    let onSelect: ((DysprosiumPalettePreset) -> Void)?
 
-    public init(themeStore: DysprosiumThemeStore = .shared) {
+    public init(
+        themeStore: DysprosiumThemeStore = .shared,
+        title: String = "Accent",
+        profileContextName: String? = nil,
+        onSelect: ((DysprosiumPalettePreset) -> Void)? = nil
+    ) {
         self.themeStore = themeStore
+        self.explicitSelection = nil
+        self.title = title
+        self.profileContextName = profileContextName
+        self.onSelect = onSelect
+    }
+
+    public init(
+        selectedPreset: DysprosiumPalettePreset,
+        title: String = "Accent",
+        profileContextName: String? = nil,
+        onSelect: @escaping (DysprosiumPalettePreset) -> Void
+    ) {
+        self.themeStore = .shared
+        self.explicitSelection = selectedPreset
+        self.title = title
+        self.profileContextName = profileContextName
+        self.onSelect = onSelect
     }
 
     public var body: some View {
-        let active = themeStore.selectedPreset
-        let activeTokens = themeStore.tokens
+        let active = explicitSelection ?? themeStore.selectedPreset
+        let activeTokens = DysprosiumTokens(preset: active)
 
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("Accent")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
 
-                Spacer(minLength: 8)
-
-                Text(active.displayName)
+                    Group {
+                        if let profileContextName, !profileContextName.isEmpty {
+                            Text("\(profileContextName) · \(active.displayName)")
+                        } else {
+                            Text(active.displayName)
+                        }
+                    }
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 8)
 
                 Text(active.elementBadge)
                     .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(activeTokens.accent)
-                    .padding(.horizontal, 5.5)
-                    .padding(.vertical, 1.5)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
                     .background(activeTokens.accentSubtleFill, in: Capsule())
+                    .fixedSize(horizontal: true, vertical: false)
             }
 
             HStack(spacing: 0) {
@@ -367,7 +426,11 @@ public struct DysprosiumPaletteSelectorRows: View {
 
                     Button {
                         withAnimation(.snappy(duration: 0.22)) {
-                            themeStore.select(preset)
+                            if let onSelect {
+                                onSelect(preset)
+                            } else {
+                                themeStore.select(preset)
+                            }
                         }
                     } label: {
                         ZStack {
@@ -381,7 +444,7 @@ public struct DysprosiumPaletteSelectorRows: View {
                             Circle()
                                 .fill(
                                     LinearGradient(
-                                        colors: [previewTokens.waferMidTop, previewTokens.accent],
+                                        colors: [previewTokens.swatchHighlight, previewTokens.accent],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
@@ -399,12 +462,13 @@ public struct DysprosiumPaletteSelectorRows: View {
                                     }
                                 }
                         }
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(preset.displayName)
                     .accessibilityValue(isSelected ? "Selected" : "")
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                     .accessibilityIdentifier("palette-row-\(preset.rawValue)")
                 }
             }

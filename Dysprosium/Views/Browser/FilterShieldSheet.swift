@@ -5,6 +5,7 @@ import SwiftUI
 struct FilterShieldManagementSheet: View {
     @Environment(\.dysprosiumTokens) private var tokens
     var session: CleanroomWebKitSession?
+    var browserStore: CleanroomBrowserStore? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var customTitle: String = ""
     @State private var customURL: String = ""
@@ -15,7 +16,15 @@ struct FilterShieldManagementSheet: View {
         NavigationStack {
             List {
                 Section("WebKit Content Shield") {
-                    if let session {
+                    if let browserStore {
+                        Toggle(
+                            "Ad, Popup & Anti-Adblock Shield",
+                            isOn: Binding(
+                                get: { browserStore.isShieldEnabled },
+                                set: { browserStore.isShieldEnabled = $0 }
+                            )
+                        )
+                    } else if let session {
                         Toggle(
                             "Ad, Popup & Anti-Adblock Shield",
                             isOn: Binding(

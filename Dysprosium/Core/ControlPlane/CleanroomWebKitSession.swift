@@ -98,19 +98,22 @@ public struct BrowserDownloadRequest: Sendable {
     public let expectedBytes: Int64?
     public let headers: [String: String]
     public let sourceDomain: String?
+    public let sourceProfileID: String?
 
     public init(
         url: URL,
         suggestedFilename: String? = nil,
         expectedBytes: Int64? = nil,
         headers: [String: String] = [:],
-        sourceDomain: String? = nil
+        sourceDomain: String? = nil,
+        sourceProfileID: String? = nil
     ) {
         self.url = url
         self.suggestedFilename = suggestedFilename
         self.expectedBytes = expectedBytes
         self.headers = headers
         self.sourceDomain = sourceDomain
+        self.sourceProfileID = sourceProfileID
     }
 }
 
@@ -402,6 +405,8 @@ public struct WebBackForwardItemSummary: Identifiable, Hashable, Sendable {
 public final class CleanroomWebKitSession: NSObject, Identifiable {
     public let id: UUID
     public let isPrivate: Bool
+    /// Owning persistent profile identifier (`nil` iff `isPrivate == true`).
+    public let profileID: String?
     public let mediaCapture: MediaCaptureCoordinator
 
     public private(set) var currentURLString: String = ""
@@ -489,14 +494,18 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
 
     public var isShieldBypassedForCurrentHost: Bool {
         guard let host = currentBypassableHost else { return false }
-        return CleanroomContentBlocker.shared.isHostBypassed(host)
+        if let rule = siteRuleProvider?(host) {
+            if rule.shieldMode == -1 { return true }
+            if rule.shieldMode == 1 { return false }
+        }
+        if profileID == nil || profileID == BrowserProfile.defaultID {
+            return CleanroomContentBlocker.shared.isHostBypassed(host)
+        }
+        return false
     }
 
     public var isEffectiveShieldEnabled: Bool {
-        CleanroomContentBlocker.shared.effectiveShieldEnabled(
-            globalEnabled: isShieldEnabled,
-            forHost: currentBypassableHost
-        )
+        resolvedEffectiveShield(forHost: currentBypassableHost, globalEnabled: isShieldEnabled)
     }
 
     public func toggleShieldBypassForCurrentHost() {
@@ -505,22 +514,38 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
 
     public var isAutoDarkBypassedForCurrentHost: Bool {
         guard let host = currentBypassableHost else { return false }
-        return DarkReaderEngine.shared.isHostBypassed(host)
+        if let rule = siteRuleProvider?(host) {
+            if rule.darkMode == -1 { return true }
+            if rule.darkMode == 1 { return false }
+        }
+        if profileID == nil || profileID == BrowserProfile.defaultID {
+            return DarkReaderEngine.shared.isHostBypassed(host)
+        }
+        return false
     }
 
     /// Toggles per-site Auto Dark Mode pause for the current website and updates live immediately.
     public func toggleAutoDarkBypassForCurrentHost() {
         guard let host = currentBypassableHost else { return }
-        let nextBypassed = !DarkReaderEngine.shared.isHostBypassed(host)
-        DarkReaderEngine.shared.setHostBypassed(nextBypassed, for: host)
+        let nextBypassed = !isAutoDarkBypassedForCurrentHost
+        if let onUpdateSiteRule {
+            onUpdateSiteRule(host, nil, nextBypassed ? -1 : 0)
+        } else {
+            DarkReaderEngine.shared.setHostBypassed(nextBypassed, for: host)
+        }
 
         guard let wv = backingWebView else { return }
         let controller = wv.configuration.userContentController
-        let enabled = isShieldEnabled
+        let effectiveShield = resolvedEffectiveShield(forHost: host, globalEnabled: isShieldEnabled)
         Task { @MainActor [weak self] in
             guard let self, let liveWV = self.backingWebView else { return }
-            await CleanroomContentBlocker.shared.apply(enabled: enabled, to: controller, forHost: host)
-            self.recordAppliedBlockerState(forHost: host, shieldEnabled: enabled)
+            await CleanroomContentBlocker.shared.apply(
+                enabled: effectiveShield,
+                to: controller,
+                forHost: host,
+                autoWebPageDarkModeOverride: !nextBypassed && CleanroomBrowserStore.persistedAutoWebPageDarkMode
+            )
+            self.recordAppliedBlockerState(forHost: host, shieldEnabled: self.isShieldEnabled)
             let enableJS = nextBypassed ? "false" : "true"
             let script = "if (typeof window.__dysprosiumSetAutoDark === 'function') { window.__dysprosiumSetAutoDark(\(enableJS)); }"
             _ = try? await liveWV.evaluateJavaScript(script)
@@ -540,7 +565,7 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
     /// ephemeral store in Private mode), re-installs 0-frame scripts, and reloads ignoring ETag cache.
     public func rotateFingerprintAndReload() {
         let wv = ensureWebView()
-        let activeProfile = resolvedUserAgentProfile(global: BrowserUserAgentProfile.persistedCurrent)
+        let activeProfile = resolvedUserAgentProfile(global: effectiveProfileUserAgent)
         let newSeed: String
         if isPrivate {
             newSeed = FingerprintShieldEngine.generateDistinctCryptographicSeed(
@@ -552,14 +577,18 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
             if !FingerprintShieldEngine.shared.isEnabled {
                 FingerprintShieldEngine.shared.isEnabled = true
             }
-            FingerprintShieldEngine.shared.rotateStandardSeed()
-            newSeed = FingerprintShieldEngine.shared.standardSeed
+            if let onRotateProfileFingerprintSeed {
+                newSeed = onRotateProfileFingerprintSeed()
+            } else {
+                FingerprintShieldEngine.shared.rotateStandardSeed()
+                newSeed = FingerprintShieldEngine.shared.standardSeed
+            }
         }
 
         let controller = wv.configuration.userContentController
         let dataStore = wv.configuration.websiteDataStore
         let host = activeNavigationHost
-        let enabled = isShieldEnabled
+        let effectiveShield = resolvedEffectiveShield(forHost: host, globalEnabled: isShieldEnabled)
         let targetURL = wv.url ?? URL(string: currentURLString)
         let isPrivateTab = isPrivate
 
@@ -626,17 +655,18 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
             // 3. Apply the brand-new OS-coherent Apple persona UA (HTTP + Main + Iframe + Worker parity),
             // re-install 0-frame scripts with the fresh 256-bit seed, and reload ignoring HTTP ETag cache.
             guard let self, let liveWV = self.backingWebView else { return }
-            let profile = self.resolvedUserAgentProfile(global: BrowserUserAgentProfile.persistedCurrent)
+            let profile = self.resolvedUserAgentProfile(global: self.effectiveProfileUserAgent)
             liveWV.customUserAgent = FingerprintShieldEngine.persona(forSeed: newSeed, profile: profile).userAgent
             self.lastAppliedUserAgentProfile = profile
             await CleanroomContentBlocker.shared.apply(
-                enabled: enabled,
+                enabled: effectiveShield,
                 to: controller,
                 forHost: host,
                 includeFingerprintShield: true,
-                fingerprintSeedOverride: newSeed
+                fingerprintSeedOverride: newSeed,
+                userAgentProfileOverride: profile
             )
-            self.recordAppliedBlockerState(forHost: host, shieldEnabled: enabled)
+            self.recordAppliedBlockerState(forHost: host, shieldEnabled: self.isShieldEnabled)
             if let targetURL, self.deferredRestoreURLString == nil {
                 var req = URLRequest(url: targetURL, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 30)
                 req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
@@ -672,8 +702,23 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
 
     public func setShieldBypassedForCurrentHost(_ bypassed: Bool) {
         guard let host = currentBypassableHost else { return }
-        let enabled = isShieldEnabled
         mediaCapture.clear()
+        if let onUpdateSiteRule {
+            onUpdateSiteRule(host, bypassed ? -1 : 1, nil)
+            guard let liveWV = backingWebView else { return }
+            let controller = liveWV.configuration.userContentController
+            let effectiveShield = resolvedEffectiveShield(forHost: host, globalEnabled: isShieldEnabled)
+            Task { @MainActor [weak self] in
+                guard let self, let liveWV = self.backingWebView else { return }
+                await CleanroomContentBlocker.shared.apply(enabled: effectiveShield, to: controller, forHost: host)
+                self.recordAppliedBlockerState(forHost: host, shieldEnabled: self.isShieldEnabled)
+                if !self.currentURLString.isEmpty, self.deferredRestoreURLString == nil {
+                    liveWV.reload()
+                }
+            }
+            return
+        }
+        let enabled = isShieldEnabled
         Task { @MainActor [weak self] in
             await CleanroomContentBlocker.shared.setHostBypassed(bypassed, for: host)
             guard let self, let liveWV = self.backingWebView else { return }
@@ -819,8 +864,19 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
 
     private var backingWebView: WKWebView?
     private var savedInteractionState: Any?
-    private let privateWebsiteDataStoreProvider: (@MainActor () -> WKWebsiteDataStore)?
+    private let websiteDataStoreProvider: (@MainActor () -> WKWebsiteDataStore)?
     private let siteRuleProvider: (@MainActor (String) -> SiteRuleRecord?)?
+    private let profileFingerprintSeedProvider: (@MainActor () -> String?)?
+    private let profileUserAgentProvider: (@MainActor () -> BrowserUserAgentProfile?)?
+    private let profileSearchProvider: (@MainActor () -> (BrowserSearchEngine, String))?
+    public var onRotateProfileFingerprintSeed: (@MainActor () -> String)?
+    public var onUpdateSiteRule: (@MainActor (_ host: String, _ shieldMode: Int?, _ darkMode: Int?) -> Void)?
+
+    /// Profile scope attributed to downloads initiated from this tab (`BrowserProfile.privateTransferProfileID`
+    /// for Private tabs so ephemeral cookies never mix with Default profile auth headers).
+    public var transferSourceProfileID: String? {
+        isPrivate ? BrowserProfile.privateTransferProfileID : profileID
+    }
     private var privateFingerprintSeed: String?
     public private(set) var pageCanvasColor: UIColor?
     private var isSyntheticDarkActive: Bool = false
@@ -882,18 +938,39 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
     public init(
         id: UUID,
         isPrivate: Bool,
+        profileID: String? = nil,
+        websiteDataStoreProvider: (@MainActor () -> WKWebsiteDataStore)? = nil,
         privateWebsiteDataStoreProvider: (@MainActor () -> WKWebsiteDataStore)? = nil,
-        siteRuleProvider: (@MainActor (String) -> SiteRuleRecord?)? = nil
+        siteRuleProvider: (@MainActor (String) -> SiteRuleRecord?)? = nil,
+        profileFingerprintSeedProvider: (@MainActor () -> String?)? = nil,
+        profileUserAgentProvider: (@MainActor () -> BrowserUserAgentProfile?)? = nil,
+        profileSearchProvider: (@MainActor () -> (BrowserSearchEngine, String))? = nil
     ) {
         self.id = id
         self.isPrivate = isPrivate
-        self.privateWebsiteDataStoreProvider = privateWebsiteDataStoreProvider
+        self.profileID = isPrivate ? nil : (profileID ?? BrowserProfile.defaultID)
+        self.websiteDataStoreProvider = websiteDataStoreProvider ?? privateWebsiteDataStoreProvider
         self.siteRuleProvider = siteRuleProvider
+        self.profileFingerprintSeedProvider = profileFingerprintSeedProvider
+        self.profileUserAgentProvider = profileUserAgentProvider
+        self.profileSearchProvider = profileSearchProvider
         self.isShieldEnabled = CleanroomBrowserStore.persistedGlobalShieldEnabled
         self.privateFingerprintSeed = isPrivate ? FingerprintShieldEngine.generateCryptographicSeed() : nil
         // Lightweight init: defer `WKWebView` allocation until `ensureWebView()` on activation or navigation.
         self.mediaCapture = MediaCaptureCoordinator(webView: nil)
         super.init()
+    }
+
+    private var effectiveProfileUserAgent: BrowserUserAgentProfile {
+        profileUserAgentProvider?() ?? BrowserUserAgentProfile.persistedCurrent
+    }
+
+    private var effectiveFingerprintSeed: String? {
+        if isPrivate {
+            return privateFingerprintSeed
+        }
+        guard FingerprintShieldEngine.shared.isEnabled else { return nil }
+        return profileFingerprintSeedProvider?() ?? FingerprintShieldEngine.shared.standardSeed
     }
 
     /// Lazily instantiates the backing `WKWebView`, wires delegates/KVO/scripts, attaches `MediaCaptureCoordinator`,
@@ -905,9 +982,8 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         }
 
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = isPrivate
-            ? (privateWebsiteDataStoreProvider?() ?? .nonPersistent())
-            : .default()
+        config.websiteDataStore = websiteDataStoreProvider?()
+            ?? (isPrivate ? .nonPersistent() : .default())
 
         let initialHost = URL(string: currentURLString)?.host()
         let wv = configureAndInstallWebView(configuration: config, initialHost: initialHost)
@@ -949,12 +1025,14 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         configuration config: WKWebViewConfiguration,
         initialHost: String?
     ) -> WKWebView {
-        SystemProxyBridge.sync(dataStore: config.websiteDataStore)
+        if websiteDataStoreProvider == nil || isPrivate {
+            SystemProxyBridge.sync(dataStore: config.websiteDataStore)
+        }
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
 
         let activeUAProfile = resolvedUserAgentProfile(
-            global: BrowserUserAgentProfile.persistedCurrent,
+            global: effectiveProfileUserAgent,
             forHost: initialHost
         )
         let activeAutoDark = resolvedAutoDarkMode(
@@ -970,20 +1048,18 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         if isPrivate, privateFingerprintSeed == nil {
             privateFingerprintSeed = FingerprintShieldEngine.generateCryptographicSeed()
         }
-        let activeBootSeed: String? = (FingerprintShieldEngine.shared.isEnabled || isPrivate)
-            ? (privateFingerprintSeed ?? FingerprintShieldEngine.shared.standardSeed)
-            : nil
+        let activeBootSeed = effectiveFingerprintSeed
         let blocker = CleanroomContentBlocker.shared
         let normalizedInitialHost = blocker.normalizeBypassHost(initialHost)
-        let effectiveInitialShield = blocker.effectiveShieldEnabled(
-            globalEnabled: isShieldEnabled,
-            forHost: normalizedInitialHost
+        let effectiveInitialShield = resolvedEffectiveShield(
+            forHost: normalizedInitialHost,
+            globalEnabled: isShieldEnabled
         )
         // Synchronous 0-frame pre-execution install of the complete script set + already-warm rule lists
         // so the very first navigation never triggers a redundant `removeAllUserScripts()` / `add(list)` cycle.
         blocker.installUserScripts(
             on: contentController,
-            shieldEnabled: isShieldEnabled,
+            shieldEnabled: effectiveInitialShield,
             forHost: normalizedInitialHost,
             includeFingerprintShield: activeBootSeed != nil,
             fingerprintSeedOverride: activeBootSeed,
@@ -1038,18 +1114,18 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
 
         blocker.registerController(
             contentController,
+            profileID: profileID,
             currentHostProvider: { [weak self] in self?.activeNavigationHost },
-            isEnabledProvider: { [weak self] in self?.isShieldEnabled ?? false },
+            isEnabledProvider: { [weak self] in
+                guard let self else { return false }
+                return self.resolvedEffectiveShield(forHost: self.activeNavigationHost, globalEnabled: self.isShieldEnabled)
+            },
             fingerprintSeedProvider: { [weak self] in
-                guard let self else { return nil }
-                if self.isPrivate {
-                    return self.privateFingerprintSeed
-                }
-                return FingerprintShieldEngine.shared.isEnabled ? FingerprintShieldEngine.shared.standardSeed : nil
+                self?.effectiveFingerprintSeed
             },
             userAgentProfileProvider: { [weak self] in
                 guard let self else { return nil }
-                return self.resolvedUserAgentProfile(global: BrowserUserAgentProfile.persistedCurrent)
+                return self.resolvedUserAgentProfile(global: self.effectiveProfileUserAgent)
             },
             autoWebPageDarkModeProvider: { [weak self] in
                 guard let self else { return nil }
@@ -1543,8 +1619,10 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         let dataStore: WKWebsiteDataStore
         if let wv = backingWebView {
             dataStore = wv.configuration.websiteDataStore
+        } else if let provided = websiteDataStoreProvider?() {
+            dataStore = provided
         } else if isPrivate {
-            dataStore = privateWebsiteDataStoreProvider?() ?? .nonPersistent()
+            dataStore = .nonPersistent()
         } else {
             dataStore = .default()
         }
@@ -1566,13 +1644,10 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
             headers["User-Agent"] = liveUA
         } else {
             let profile = resolvedUserAgentProfile(
-                global: BrowserUserAgentProfile.persistedCurrent,
+                global: effectiveProfileUserAgent,
                 forHost: targetHost
             )
-            let activeSeed: String? = isPrivate
-                ? privateFingerprintSeed
-                : (FingerprintShieldEngine.shared.isEnabled ? FingerprintShieldEngine.shared.standardSeed : nil)
-            if let activeSeed {
+            if let activeSeed = effectiveFingerprintSeed {
                 headers["User-Agent"] = FingerprintShieldEngine.persona(forSeed: activeSeed, profile: profile).userAgent
             } else {
                 headers["User-Agent"] = profile.userAgentString
@@ -1688,6 +1763,26 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         return global
     }
 
+    private func resolvedEffectiveShield(
+        forHost hostOverride: String? = nil,
+        globalEnabled: Bool? = nil
+    ) -> Bool {
+        let effectiveGlobal = globalEnabled ?? isShieldEnabled
+        let candidateHost = hostOverride ?? activeNavigationHost
+        if let candidateHost,
+           let rule = siteRuleProvider?(candidateHost) {
+            if rule.shieldMode == 1 { return true }
+            if rule.shieldMode == -1 { return false }
+        }
+        if profileID == nil || profileID == BrowserProfile.defaultID {
+            return CleanroomContentBlocker.shared.effectiveShieldEnabled(
+                globalEnabled: effectiveGlobal,
+                forHost: candidateHost
+            )
+        }
+        return effectiveGlobal
+    }
+
     private func resolvedPageZoom(forHost hostOverride: String? = nil) -> Double {
         let candidateHost = hostOverride ?? activeNavigationHost
         if let candidateHost,
@@ -1703,22 +1798,19 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
     private func computeScriptSignature(forHost host: String?, shieldEnabled: Bool) -> String {
         let blocker = CleanroomContentBlocker.shared
         let h = blocker.normalizeBypassHost(host)
-        let effective = blocker.effectiveShieldEnabled(globalEnabled: shieldEnabled, forHost: h)
-        let ua = resolvedUserAgentProfile(global: BrowserUserAgentProfile.persistedCurrent, forHost: h).rawValue
+        let effective = resolvedEffectiveShield(forHost: h, globalEnabled: shieldEnabled)
+        let ua = resolvedUserAgentProfile(global: effectiveProfileUserAgent, forHost: h).rawValue
         let autoDark = resolvedAutoDarkMode(global: CleanroomBrowserStore.persistedAutoWebPageDarkMode, forHost: h)
         let dark = DarkReaderEngine.shared
         let darkBehavior = dark.modeBehavior
         let darkPreset = dark.themePreset
         let needsDarkDetector: Bool = {
             guard autoDark, let h, !h.isEmpty else { return false }
-            if dark.isHostBypassed(h) { return false }
+            if (profileID == nil || profileID == BrowserProfile.defaultID) && dark.isHostBypassed(h) { return false }
             return !darkPreset.isDarkScheme || !dark.isKnownNativeDarkHostIfCached(h)
         }()
         let darkKey = needsDarkDetector ? "1:\(darkBehavior.rawValue):\(darkPreset.rawValue)" : "0"
-        let activeSeed: String = {
-            if isPrivate { return privateFingerprintSeed ?? "" }
-            return FingerprintShieldEngine.shared.isEnabled ? FingerprintShieldEngine.shared.standardSeed : ""
-        }()
+        let activeSeed = effectiveFingerprintSeed ?? ""
         let maskScreen = FingerprintShieldEngine.shared.maskFoldableScreen ? "1" : "0"
         let hasDefuser = (effective && blocker.hasEnabledAntiAdblockSubscription) ? "1" : "0"
         let scriptletKey = effective ? blocker.scriptletCacheKey(forHost: h) : ""
@@ -1728,7 +1820,7 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
     private func recordAppliedBlockerState(forHost host: String?, shieldEnabled: Bool) {
         let blocker = CleanroomContentBlocker.shared
         let normalized = blocker.normalizeBypassHost(host)
-        let effective = blocker.effectiveShieldEnabled(globalEnabled: shieldEnabled, forHost: normalized)
+        let effective = resolvedEffectiveShield(forHost: normalized, globalEnabled: shieldEnabled)
         lastInstalledScriptSignature = computeScriptSignature(forHost: normalized, shieldEnabled: shieldEnabled)
         lastAppliedEffectiveShield = effective
         lastAttachedRuleListGeneration = (effective && !blocker.compiledLists.isEmpty) ? blocker.compiledListsGeneration : nil
@@ -1741,7 +1833,7 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         guard let wv = backingWebView else { return }
         let blocker = CleanroomContentBlocker.shared
         let normalized = blocker.normalizeBypassHost(targetHost)
-        let effective = blocker.effectiveShieldEnabled(globalEnabled: isShieldEnabled, forHost: normalized)
+        let effective = resolvedEffectiveShield(forHost: normalized, globalEnabled: isShieldEnabled)
         let sig = computeScriptSignature(forHost: normalized, shieldEnabled: isShieldEnabled)
 
         let controller = wv.configuration.userContentController
@@ -1758,11 +1850,9 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
 
         if scriptsNeedUpdate {
             lastInstalledScriptSignature = sig
-            let activeSeed: String? = isPrivate
-                ? privateFingerprintSeed
-                : (FingerprintShieldEngine.shared.isEnabled ? FingerprintShieldEngine.shared.standardSeed : nil)
+            let activeSeed = effectiveFingerprintSeed
             let effectiveUA = resolvedUserAgentProfile(
-                global: BrowserUserAgentProfile.persistedCurrent,
+                global: effectiveProfileUserAgent,
                 forHost: normalized
             )
             let effectiveDark = resolvedAutoDarkMode(
@@ -1772,7 +1862,7 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
 
             blocker.installUserScripts(
                 on: controller,
-                shieldEnabled: isShieldEnabled,
+                shieldEnabled: effective,
                 forHost: normalized,
                 includeFingerprintShield: activeSeed != nil,
                 fingerprintSeedOverride: activeSeed,
@@ -1822,11 +1912,42 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         isShieldEnabled = enabled
         guard let wv = backingWebView else { return }
         let host = activeNavigationHost
+        let effectiveShield = resolvedEffectiveShield(forHost: host, globalEnabled: enabled)
         let controller = wv.configuration.userContentController
         recordAppliedBlockerState(forHost: host, shieldEnabled: enabled)
         Task { @MainActor [weak self] in
-            await CleanroomContentBlocker.shared.apply(enabled: enabled, to: controller, forHost: host)
+            await CleanroomContentBlocker.shared.apply(enabled: effectiveShield, to: controller, forHost: host)
             self?.backingWebView?.reload()
+        }
+    }
+
+    /// Re-evaluates per-site shield rules (`WKContentRuleList` + host scriptlets) for the current host
+    /// and reloads when the effective shield decision changed.
+    public func syncShieldRulesForCurrentHost(reloadIfChanged: Bool = true) {
+        guard let wv = backingWebView else { return }
+        let host = activeNavigationHost
+        let effectiveShield = resolvedEffectiveShield(forHost: host, globalEnabled: isShieldEnabled)
+        let changed = (lastAppliedEffectiveShield != effectiveShield)
+        guard changed else { return }
+        let controller = wv.configuration.userContentController
+        recordAppliedBlockerState(forHost: host, shieldEnabled: isShieldEnabled)
+        Task { @MainActor [weak self] in
+            await CleanroomContentBlocker.shared.apply(enabled: effectiveShield, to: controller, forHost: host)
+            if reloadIfChanged, let self, !self.currentURLString.isEmpty, self.deferredRestoreURLString == nil {
+                self.backingWebView?.reload()
+            }
+        }
+    }
+
+    /// Synchronizes `WKWebView.customUserAgent` after a fingerprint seed rotation or shield toggle
+    /// so HTTP/Worker `User-Agent` headers stay paired with the injected JS persona.
+    public func refreshCustomUserAgentForActivePersona() {
+        guard let wv = backingWebView else { return }
+        let effectiveProfile = resolvedUserAgentProfile(global: effectiveProfileUserAgent)
+        if let activeSeed = effectiveFingerprintSeed {
+            wv.customUserAgent = FingerprintShieldEngine.persona(forSeed: activeSeed, profile: effectiveProfile).userAgent
+        } else {
+            wv.customUserAgent = effectiveProfile.userAgentString
         }
     }
 
@@ -1860,11 +1981,23 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
             applyPageZoom(effectiveZoom)
         }
 
+        let effectiveShield = resolvedEffectiveShield(forHost: activeNavigationHost, globalEnabled: isShieldEnabled)
+        let shieldChanged = (lastAppliedEffectiveShield != effectiveShield)
+
         // Compare against `lastAppliedUserAgentProfile` instead of raw `webView.customUserAgent`
         // so Fingerprint Shield persona UAs never trigger spurious `reloadFromOrigin()` on tab switches.
         let uaChanged = (lastAppliedUserAgentProfile != effectiveUA)
         let desiredDarkKey = Self.darkConfigKey(effectiveEnabled: effectiveDark)
-        if uaChanged {
+        if shieldChanged {
+            if uaChanged {
+                applyUserAgentProfile(effectiveUA, reloadIfLoaded: false)
+                lastAppliedAutoDarkMode = effectiveDark
+                lastAppliedDarkConfigKey = desiredDarkKey
+            } else if lastAppliedAutoDarkMode != effectiveDark || lastAppliedDarkConfigKey != desiredDarkKey {
+                applyAutoWebPageDarkMode(effectiveDark)
+            }
+            syncShieldRulesForCurrentHost(reloadIfChanged: true)
+        } else if uaChanged {
             applyUserAgentProfile(effectiveUA, reloadIfLoaded: true)
             lastAppliedAutoDarkMode = effectiveDark
             lastAppliedDarkConfigKey = desiredDarkKey
@@ -1884,19 +2017,18 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         guard let wv = backingWebView else { return }
 
         wv.configuration.defaultWebpagePreferences.preferredContentMode = effectiveProfile.preferredContentMode
-        let activeSeed: String? = isPrivate
-            ? privateFingerprintSeed
-            : (FingerprintShieldEngine.shared.isEnabled ? FingerprintShieldEngine.shared.standardSeed : nil)
+        let activeSeed = effectiveFingerprintSeed
         if let activeSeed {
             wv.customUserAgent = FingerprintShieldEngine.persona(forSeed: activeSeed, profile: effectiveProfile).userAgent
         } else {
             wv.customUserAgent = effectiveProfile.userAgentString
         }
         let host = activeNavigationHost
+        let effectiveShield = resolvedEffectiveShield(forHost: host, globalEnabled: isShieldEnabled)
         recordAppliedBlockerState(forHost: host, shieldEnabled: isShieldEnabled)
         CleanroomContentBlocker.shared.installUserScripts(
             on: wv.configuration.userContentController,
-            shieldEnabled: isShieldEnabled,
+            shieldEnabled: effectiveShield,
             forHost: host,
             includeFingerprintShield: activeSeed != nil,
             fingerprintSeedOverride: activeSeed,
@@ -1914,13 +2046,12 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         guard let wv = backingWebView else { return }
 
         let host = activeNavigationHost
+        let effectiveShield = resolvedEffectiveShield(forHost: host, globalEnabled: isShieldEnabled)
         recordAppliedBlockerState(forHost: host, shieldEnabled: isShieldEnabled)
-        let activeSeed: String? = isPrivate
-            ? privateFingerprintSeed
-            : (FingerprintShieldEngine.shared.isEnabled ? FingerprintShieldEngine.shared.standardSeed : nil)
+        let activeSeed = effectiveFingerprintSeed
         CleanroomContentBlocker.shared.installUserScripts(
             on: wv.configuration.userContentController,
-            shieldEnabled: isShieldEnabled,
+            shieldEnabled: effectiveShield,
             forHost: host,
             includeFingerprintShield: activeSeed != nil,
             fingerprintSeedOverride: activeSeed,
@@ -2060,6 +2191,17 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         if let wv = backingWebView {
             detachWebViewResources(wv)
         }
+        onOpenLinkInTab = nil
+        onNavigationCommitted = nil
+        onEnqueueBrowserDownload = nil
+        onWKDownloadFinished = nil
+        onWKDownloadFailed = nil
+        onPDFSavedToVault = nil
+        onShareURL = nil
+        onCreateChildWebViewTab = nil
+        onRequestCloseSelf = nil
+        onRotateProfileFingerprintSeed = nil
+        onUpdateSiteRule = nil
     }
 
     private func cancelPendingDialogsAndChallenges() {
@@ -2099,6 +2241,7 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         cancelPendingDialogsAndChallenges()
         wv.setAllMediaPlaybackSuspended(true)
         wv.stopLoading()
+        wv.removeFromSuperview()
         wv.navigationDelegate = nil
         wv.uiDelegate = nil
         progressObservation = nil
@@ -2315,7 +2458,12 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         lastLoadError = nil
         lastBlockedPopupURL = nil
 
-        guard let url = Self.resolveNavigationURL(from: trimmed) else { return }
+        let searchConfig = profileSearchProvider?()
+        guard let url = Self.resolveNavigationURL(
+            from: trimmed,
+            searchEngine: searchConfig?.0 ?? BrowserSearchEngine.persistedCurrent,
+            customSearchTemplate: searchConfig?.1
+        ) else { return }
         let wv = ensureWebView()
 
         if clearPreviousStreams, url.absoluteString != currentURLString {
@@ -2329,7 +2477,7 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         // Apply per-site UA & zoom before initiating load
         let targetHost = url.host()
         let effectiveUA = resolvedUserAgentProfile(
-            global: BrowserUserAgentProfile.persistedCurrent,
+            global: effectiveProfileUserAgent,
             forHost: targetHost
         )
         if lastAppliedUserAgentProfile != effectiveUA {
@@ -2339,9 +2487,9 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         syncContentBlockerForHostNavigation(targetHost)
 
         let blocker = CleanroomContentBlocker.shared
-        let effectiveShield = blocker.effectiveShieldEnabled(
-            globalEnabled: isShieldEnabled,
-            forHost: targetHost
+        let effectiveShield = resolvedEffectiveShield(
+            forHost: targetHost,
+            globalEnabled: isShieldEnabled
         )
         // Fast synchronous load path whenever content-blocker bytecode is already warm (or shield is off):
         // starts DNS/TLS immediately with zero Task hop. On cold start, await ONLY the ~5–15 ms cached
@@ -2449,9 +2597,9 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
                 return
             }
             let refURL = (body["referer"] as? String).flatMap(URL.init(string:)) ?? backingWebView?.url
-            let effectiveShield = CleanroomContentBlocker.shared.effectiveShieldEnabled(
-                globalEnabled: isShieldEnabled,
-                forHost: activeNavigationHost
+            let effectiveShield = resolvedEffectiveShield(
+                forHost: activeNavigationHost,
+                globalEnabled: isShieldEnabled
             )
             if !effectiveShield || Self.sharesBaseDomain(targetURL, with: refURL) {
                 lastOpenTabTimestamp = .now
@@ -2761,9 +2909,9 @@ extension CleanroomWebKitSession: WKNavigationDelegate, WKUIDelegate, WKDownload
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        let effectiveShield = CleanroomContentBlocker.shared.effectiveShieldEnabled(
-            globalEnabled: isShieldEnabled,
-            forHost: activeNavigationHost
+        let effectiveShield = resolvedEffectiveShield(
+            forHost: activeNavigationHost,
+            globalEnabled: isShieldEnabled
         )
         let isExplicitGesture = navigationAction.navigationType == .linkActivated
             || navigationAction.navigationType == .formSubmitted
@@ -2957,7 +3105,7 @@ extension CleanroomWebKitSession: WKNavigationDelegate, WKUIDelegate, WKDownload
             ? navigationAction.request.url?.host()
             : activeNavigationHost
         let effectiveUA = resolvedUserAgentProfile(
-            global: BrowserUserAgentProfile.persistedCurrent,
+            global: effectiveProfileUserAgent,
             forHost: targetHostForUA
         )
         preferences.preferredContentMode = effectiveUA.preferredContentMode
@@ -2998,11 +3146,12 @@ extension CleanroomWebKitSession: WKNavigationDelegate, WKUIDelegate, WKDownload
         } else if navigationAction.targetFrame?.isMainFrame == false,
                   let subframeHost = url.host(),
                   !subframeHost.isEmpty {
+            let mainHost = currentURL?.host()
             CleanroomContentBlocker.shared.ensureSubframeScriptlets(
                 forHost: subframeHost,
                 on: webView.configuration.userContentController,
-                shieldEnabled: isShieldEnabled,
-                mainHost: currentURL?.host()
+                shieldEnabled: resolvedEffectiveShield(forHost: mainHost, globalEnabled: isShieldEnabled),
+                mainHost: mainHost
             )
         }
 
@@ -3125,7 +3274,8 @@ extension CleanroomWebKitSession: WKNavigationDelegate, WKUIDelegate, WKDownload
                         suggestedFilename: suggestedFilename,
                         expectedBytes: expectedBytes,
                         headers: headers,
-                        sourceDomain: sourceDomain
+                        sourceDomain: sourceDomain,
+                        sourceProfileID: self.transferSourceProfileID
                     )
                     self.onEnqueueBrowserDownload?(request)
                 }
@@ -3403,7 +3553,8 @@ extension CleanroomWebKitSession: WKNavigationDelegate, WKUIDelegate, WKDownload
                         suggestedFilename: suggestedName,
                         expectedBytes: nil,
                         headers: headers,
-                        sourceDomain: (normalizedDomain?.isEmpty == false) ? normalizedDomain : nil
+                        sourceDomain: (normalizedDomain?.isEmpty == false) ? normalizedDomain : nil,
+                        sourceProfileID: self.transferSourceProfileID
                     )
                     self.onEnqueueBrowserDownload?(request)
                 }

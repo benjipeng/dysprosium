@@ -36,6 +36,8 @@ struct CleanroomBrowserWorkspaceView: View {
     @State private var isShowingTabsSheet: Bool = false
     @State private var isShowingClearDataSheet: Bool = false
     @State private var isShowingBookmarksHistorySheet: Bool = false
+    @State private var isShowingProfilesSheet: Bool = false
+    @State private var isShowingNewProfileSheet: Bool = false
     @State private var favoriteEditorTarget: FavoriteEditorTarget? = nil
 
     @State private var omniboxFocusTrigger: Int = 0
@@ -65,7 +67,7 @@ struct CleanroomBrowserWorkspaceView: View {
     }
 
     private var activeScopeTabCount: Int {
-        browserStore.tabs.filter { $0.isPrivate == session.isPrivate }.count
+        browserStore.tabs.filter { $0.isPrivate == session.isPrivate && $0.profileID == session.profileID }.count
     }
 
     private var omniboxSuggestionTaskKey: String {
@@ -140,7 +142,7 @@ struct CleanroomBrowserWorkspaceView: View {
                     .accessibilityIdentifier("native-pdf-viewport")
                 } else {
                     NativeWebKitHost(
-                        webView: session.webView,
+                        webView: isStartPageVisible ? session.liveWebViewIfLoaded : session.webView,
                         desiredTopOverlayHeight: measuredTopOverlayHeight,
                         collapseModel: chromeCollapse,
                         allowScrollCollapse: allowScrollCollapse && session.activePDF == nil,
@@ -219,6 +221,10 @@ struct CleanroomBrowserWorkspaceView: View {
                     compactDomainTitle: session.displayHost,
                     isPrivate: session.isPrivate,
                     isInsecureHTTP: !session.isSecureConnection && session.currentURL?.scheme?.lowercased() == "http",
+                    profileSymbolName: (browserStore.isMultiProfileEnabled && !session.isPrivate)
+                        ? browserStore.activeProfile.symbolName
+                        : nil,
+                    profileAccent: tokens.accent,
                     privateAccent: tokens.privateAccent,
                     warningTint: tokens.statusWarning,
                     glassIconPrimary: tokens.glassIconPrimary,
@@ -453,7 +459,11 @@ struct CleanroomBrowserWorkspaceView: View {
                         )
                         .symbolRenderingMode(.monochrome)
                     }
-                    .tint(session.isPrivate ? tokens.privateAccent : tokens.glassIconPrimary)
+                    .tint(
+                        session.isPrivate
+                            ? tokens.privateAccent
+                            : (browserStore.isMultiProfileEnabled ? tokens.accent : tokens.glassIconPrimary)
+                    )
                     .accessibilityIdentifier("browser-tabs-button")
                 }
 
@@ -568,13 +578,19 @@ struct CleanroomBrowserWorkspaceView: View {
                 .ignoresSafeArea()
         }
         .sheet(isPresented: $isShowingShieldSheet) {
-            FilterShieldManagementSheet(session: session)
+            FilterShieldManagementSheet(session: session, browserStore: browserStore)
         }
         .sheet(isPresented: $isShowingTabsSheet) {
             BrowserTabsSheet(browserStore: browserStore)
         }
+        .sheet(isPresented: $isShowingProfilesSheet) {
+            ProfileManagementSheet(browserStore: browserStore)
+        }
+        .sheet(isPresented: $isShowingNewProfileSheet) {
+            ProfileCreationSheet(browserStore: browserStore)
+        }
         .sheet(isPresented: $isShowingClearDataSheet) {
-            ClearBrowsingDataSheet(browserStore: browserStore)
+            ClearBrowsingDataSheet(browserStore: browserStore, targetProfileID: browserStore.activeProfileID)
         }
         .sheet(isPresented: $isShowingBookmarksHistorySheet) {
             NavigationStack {
@@ -685,7 +701,11 @@ struct CleanroomBrowserWorkspaceView: View {
                 Image(systemName: tabsToolbarSymbol)
                     .symbolRenderingMode(.monochrome)
                     .font(.system(size: 13.5, weight: .medium))
-                    .foregroundStyle(session.isPrivate ? tokens.privateAccent : tokens.glassIconPrimary)
+                    .foregroundStyle(
+                        session.isPrivate
+                            ? tokens.privateAccent
+                            : (browserStore.isMultiProfileEnabled ? tokens.accent : tokens.glassIconPrimary)
+                    )
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
@@ -918,6 +938,25 @@ struct CleanroomBrowserWorkspaceView: View {
         }
 
         Section {
+            if browserStore.isMultiProfileEnabled {
+                Menu {
+                    ProfileSwitcherMenuContent(
+                        browserStore: browserStore,
+                        selectedProfileID: session.isPrivate ? "" : browserStore.activeProfileID,
+                        onNewProfile: { isShowingNewProfileSheet = true },
+                        onManageProfiles: { isShowingProfilesSheet = true }
+                    )
+                } label: {
+                    Label("Profile: \(browserStore.activeProfile.name)", systemImage: browserStore.activeProfile.symbolName)
+                }
+            } else {
+                Button {
+                    isShowingNewProfileSheet = true
+                } label: {
+                    Label("New Profile…", systemImage: "person.crop.circle.badge.plus")
+                }
+            }
+
             Button {
                 isShowingBookmarksHistorySheet = true
             } label: {
@@ -947,7 +986,8 @@ struct CleanroomBrowserWorkspaceView: View {
     // MARK: - Z = 1 Persistent Omnibox Inner Content
 
     private var omniboxExpandedInnerContent: some View {
-        HStack(spacing: 4) {
+        let showProfileChip = browserStore.isMultiProfileEnabled && !session.isPrivate && !isAddressEditing
+        return HStack(spacing: 4) {
             omniboxShieldControl
 
             OmniboxAddressField(
@@ -963,6 +1003,10 @@ struct CleanroomBrowserWorkspaceView: View {
             )
             .frame(maxWidth: .infinity)
             .frame(height: 22)
+
+            if showProfileChip {
+                omniboxProfileSwitcherChip
+            }
 
             if !isAddressEditing && hasActivePageOrLoad {
                 Button {
@@ -985,7 +1029,31 @@ struct CleanroomBrowserWorkspaceView: View {
             }
         }
         .padding(.leading, 3)
-        .padding(.trailing, !isAddressEditing && hasActivePageOrLoad ? 3 : 10)
+        .padding(.trailing, (!isAddressEditing && (hasActivePageOrLoad || showProfileChip)) ? 3 : 10)
+    }
+
+    private var omniboxProfileSwitcherChip: some View {
+        let activeProfile = browserStore.activeProfile
+        return Menu {
+            ProfileSwitcherMenuContent(
+                browserStore: browserStore,
+                onNewProfile: { isShowingNewProfileSheet = true },
+                onManageProfiles: { isShowingProfilesSheet = true }
+            )
+        } label: {
+            Image(systemName: activeProfile.symbolName)
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(tokens.accent)
+                .frame(width: 26, height: 26)
+                .background(tokens.accentSubtleFill, in: Circle())
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Profile: \(activeProfile.name)")
+        .accessibilityHint("Switch profile")
+        .accessibilityIdentifier("browser-profile-chip")
     }
 
     @ViewBuilder
@@ -1064,12 +1132,13 @@ struct CleanroomBrowserWorkspaceView: View {
             .accessibilityLabel("PDF Reader Options")
             .accessibilityIdentifier("browser-shield-button")
         } else if let host = session.currentBypassableHost, !isStartPageVisible {
+            let tabIsPrivate = session.isPrivate
             let isSecure = session.isSecureConnection && session.currentURL?.scheme?.lowercased() == "https"
-            let currentZoom = browserStore.effectivePageZoom(forHost: host)
+            let currentZoom = browserStore.effectivePageZoom(forHost: host, isPrivate: tabIsPrivate)
             let zoomPercent = Int((currentZoom * 100).rounded())
-            let siteShieldEnabled = browserStore.effectiveShieldEnabled(forHost: host)
-            let siteDarkEnabled = browserStore.effectiveAutoDark(forHost: host)
-            let isDesktopSite = (browserStore.effectiveUserAgent(forHost: host) == .macosSafari)
+            let siteShieldEnabled = browserStore.effectiveShieldEnabled(forHost: host, isPrivate: tabIsPrivate)
+            let siteDarkEnabled = browserStore.effectiveAutoDark(forHost: host, isPrivate: tabIsPrivate)
+            let isDesktopSite = (browserStore.effectiveUserAgent(forHost: host, isPrivate: tabIsPrivate) == .macosSafari)
 
             Menu {
                 Section(isSecure ? "Secure HTTPS · \(host)" : "Not Secure HTTP · \(host)") {
@@ -1109,7 +1178,11 @@ struct CleanroomBrowserWorkspaceView: View {
                         isOn: Binding(
                             get: { siteShieldEnabled },
                             set: { enabled in
-                                browserStore.updateSiteRule(forHost: host, shieldMode: enabled ? 1 : -1)
+                                browserStore.updateSiteRule(
+                                    forHost: host,
+                                    shieldMode: enabled ? 1 : -1,
+                                    isPrivate: tabIsPrivate
+                                )
                             }
                         )
                     ) {
@@ -1120,7 +1193,11 @@ struct CleanroomBrowserWorkspaceView: View {
                         isOn: Binding(
                             get: { siteDarkEnabled },
                             set: { enabled in
-                                browserStore.updateSiteRule(forHost: host, darkMode: enabled ? 1 : -1)
+                                browserStore.updateSiteRule(
+                                    forHost: host,
+                                    darkMode: enabled ? 1 : -1,
+                                    isPrivate: tabIsPrivate
+                                )
                             }
                         )
                     ) {
@@ -1154,9 +1231,11 @@ struct CleanroomBrowserWorkspaceView: View {
                         isOn: Binding(
                             get: { isDesktopSite },
                             set: { useDesktop in
-                                let nextProfile: BrowserUserAgentProfile = useDesktop ? .macosSafari : .iosSafari
-                                browserStore.updateSiteRule(forHost: host, uaMode: useDesktop ? 2 : 1)
-                                session.applyUserAgentProfile(nextProfile, reloadIfLoaded: true)
+                                browserStore.updateSiteRule(
+                                    forHost: host,
+                                    uaMode: useDesktop ? 2 : 1,
+                                    isPrivate: tabIsPrivate
+                                )
                             }
                         )
                     ) {
@@ -1459,7 +1538,8 @@ struct CleanroomBrowserWorkspaceView: View {
             lanes: defaultLanes,
             headers: v.headers,
             suggestedTitle: filename,
-            preloadedManifestText: v.preloadedManifestText
+            preloadedManifestText: v.preloadedManifestText,
+            sourceProfileID: session.transferSourceProfileID
         )
         return created.id
     }
@@ -1485,7 +1565,8 @@ struct CleanroomBrowserWorkspaceView: View {
                     url: url,
                     sourcePageURL: activeSession.currentURL,
                     lanes: defaultLanes,
-                    headers: headers
+                    headers: headers,
+                    sourceProfileID: activeSession.transferSourceProfileID
                 )
                 onJumpToTransfer(created.id)
             }
@@ -1602,54 +1683,80 @@ struct CleanroomBrowserWorkspaceView: View {
     }
 
     private func wireAllSessionCallbacks() {
+        // Capture lightweight state bindings and `[weak scheduler]` (never `self`/`browserStore`)
+        // to prevent `browserStore -> tabs -> session -> closure -> browserStore` retain cycles
+        // and read the live lane count & theme tokens dynamically on each callback invocation.
+        let toastBinding = $activeToastBanner
+        let dismissTaskBinding = $toastDismissTask
+        let shareBinding = $activeSharePayload
+        let weakScheduler = scheduler
+
+        let presentToast: @MainActor (BrowserToastBanner) -> Void = { banner in
+            dismissTaskBinding.wrappedValue?.cancel()
+            toastBinding.wrappedValue = banner
+            let bannerID = banner.id
+            dismissTaskBinding.wrappedValue = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(4))
+                guard !Task.isCancelled, toastBinding.wrappedValue?.id == bannerID else { return }
+                withAnimation(.snappy(duration: 0.2)) {
+                    toastBinding.wrappedValue = nil
+                }
+            }
+        }
+
         for tab in browserStore.tabs {
-            tab.onEnqueueBrowserDownload = { [weak tab] request in
-                let job = scheduler.enqueue(
+            tab.onEnqueueBrowserDownload = { [weak tab, weak weakScheduler] request in
+                guard let sched = weakScheduler else { return }
+                let liveTokens = DysprosiumThemeStore.shared.tokens
+                let job = sched.enqueue(
                     url: request.url,
                     sourcePageURL: tab?.currentURL,
                     expectedTotalBytes: request.expectedBytes,
                     siteDomainOverride: request.sourceDomain,
-                    lanes: defaultLanes,
+                    lanes: sched.defaultLanesPerTransfer,
                     headers: request.headers,
-                    suggestedTitle: request.suggestedFilename
+                    suggestedTitle: request.suggestedFilename,
+                    sourceProfileID: request.sourceProfileID
                 )
                 let fallbackName = request.url.lastPathComponent
                 let name = (request.suggestedFilename?.isEmpty == false ? request.suggestedFilename : nil)
                     ?? (fallbackName.isEmpty ? "file" : fallbackName)
-                showTransientToast(
+                presentToast(
                     BrowserToastBanner(
                         icon: "arrow.down.circle.fill",
                         title: "Downloading \(name)",
-                        tint: tokens.accent,
+                        tint: liveTokens.accent,
                         actionTitle: "View",
                         action: .jumpToTransfer(job.id)
                     )
                 )
             }
             tab.onWKDownloadFinished = { fileURL in
-                showTransientToast(
+                let liveTokens = DysprosiumThemeStore.shared.tokens
+                presentToast(
                     BrowserToastBanner(
                         icon: "checkmark.circle.fill",
                         title: "Saved \(fileURL.lastPathComponent)",
-                        tint: tokens.statusSuccess,
+                        tint: liveTokens.statusSuccess,
                         actionTitle: "View",
                         action: .openDownloads
                     )
                 )
             }
             tab.onWKDownloadFailed = { message in
-                showTransientToast(
+                let liveTokens = DysprosiumThemeStore.shared.tokens
+                presentToast(
                     BrowserToastBanner(
                         icon: "exclamationmark.triangle.fill",
                         title: message,
-                        tint: tokens.statusDanger,
+                        tint: liveTokens.statusDanger,
                         actionTitle: nil,
                         action: nil
                     )
                 )
             }
             tab.onShareURL = { url in
-                activeSharePayload = BrowserSharePayload(items: [url])
+                shareBinding.wrappedValue = BrowserSharePayload(items: [url])
             }
         }
     }
@@ -1657,7 +1764,7 @@ struct CleanroomBrowserWorkspaceView: View {
     private static let zoomSteps: [Double] = [0.5, 0.75, 0.85, 1.0, 1.15, 1.25, 1.5, 1.75, 2.0]
 
     private func stepSiteZoom(forHost host: String, direction: Int) {
-        let current = browserStore.effectivePageZoom(forHost: host)
+        let current = browserStore.effectivePageZoom(forHost: host, isPrivate: session.isPrivate)
         let nextZoom: Double
         if direction > 0 {
             nextZoom = Self.zoomSteps.first(where: { $0 > current + 0.01 }) ?? SiteRuleRecord.maxPageZoom
@@ -1670,10 +1777,10 @@ struct CleanroomBrowserWorkspaceView: View {
     private func applySiteZoom(_ zoom: Double, forHost host: String) {
         let clamped = SiteRuleRecord.clampedZoom(zoom)
         if abs(clamped - 1.0) < 0.01 {
-            browserStore.updateSiteRule(forHost: host, resetPageZoom: true)
+            browserStore.updateSiteRule(forHost: host, resetPageZoom: true, isPrivate: session.isPrivate)
             session.applyPageZoom(1.0)
         } else {
-            browserStore.updateSiteRule(forHost: host, pageZoom: clamped)
+            browserStore.updateSiteRule(forHost: host, pageZoom: clamped, isPrivate: session.isPrivate)
             session.applyPageZoom(clamped)
         }
     }
@@ -1797,6 +1904,9 @@ struct CleanroomBrowserWorkspaceView: View {
             }
         }
         let resolved = asset.image(with: .current).withRenderingMode(.alwaysOriginal)
+        if Self.badgedRadarImageCache.count >= 32 {
+            Self.badgedRadarImageCache.removeAll(keepingCapacity: true)
+        }
         Self.badgedRadarImageCache[cacheKey] = resolved
         return resolved
     }
@@ -1862,7 +1972,7 @@ struct CleanroomBrowserWorkspaceView: View {
 
     private var isShieldPausedOnCurrentSite: Bool {
         session.isShieldEnabled
-            && !browserStore.effectiveShieldEnabled(forHost: session.currentBypassableHost)
+            && !browserStore.effectiveShieldEnabled(forHost: session.currentBypassableHost, isPrivate: session.isPrivate)
             && session.currentBypassableHost != nil
     }
 
@@ -2155,6 +2265,27 @@ final class BrowserChromeCollapseModel {
     }
 }
 
+@MainActor
+private enum BrowserCompactPillWidthCache {
+    private static var widths: [String: CGFloat] = [:]
+    private static let font = UIFont.systemFont(ofSize: 11.5, weight: .semibold)
+
+    static func width(title: String, hasIcon: Bool, maxWidth: CGFloat) -> CGFloat {
+        let key = "\(title)|\(hasIcon ? 1 : 0)|\(Int(maxWidth))"
+        if let cached = widths[key] {
+            return cached
+        }
+        let textWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width)
+        let iconWidth: CGFloat = hasIcon ? 14 : 0
+        let resolved = min(maxWidth, max(72, textWidth + iconWidth + 24))
+        if widths.count >= 64 {
+            widths.removeAll(keepingCapacity: true)
+        }
+        widths[key] = resolved
+        return resolved
+    }
+}
+
 private struct BrowserFloatingTopChromeOverlay<
     OmniboxExpandedContent: View,
     BackButtonContent: View,
@@ -2170,6 +2301,8 @@ private struct BrowserFloatingTopChromeOverlay<
     let compactDomainTitle: String
     let isPrivate: Bool
     let isInsecureHTTP: Bool
+    let profileSymbolName: String?
+    let profileAccent: Color
     let privateAccent: Color
     let warningTint: Color
     let glassIconPrimary: Color
@@ -2183,10 +2316,12 @@ private struct BrowserFloatingTopChromeOverlay<
     @ViewBuilder let trailingCapsuleContent: () -> TrailingCapsuleContent
 
     private var measuredCompactPillWidth: CGFloat {
-        let font = UIFont.systemFont(ofSize: 11.5, weight: .semibold)
-        let textWidth = ceil((compactDomainTitle as NSString).size(withAttributes: [.font: font]).width)
-        let iconWidth: CGFloat = (isPrivate || isInsecureHTTP) ? 14 : 0
-        return min(layout.compactMaxWidth, max(72, textWidth + iconWidth + 24))
+        let hasIcon = isPrivate || isInsecureHTTP || profileSymbolName != nil
+        return BrowserCompactPillWidthCache.width(
+            title: compactDomainTitle,
+            hasIcon: hasIcon,
+            maxWidth: layout.compactMaxWidth
+        )
     }
 
     var body: some View {
@@ -2233,6 +2368,11 @@ private struct BrowserFloatingTopChromeOverlay<
                                 .symbolRenderingMode(.monochrome)
                                 .font(.system(size: 9.5, weight: .semibold))
                                 .foregroundStyle(warningTint)
+                        } else if let profileSymbolName {
+                            Image(systemName: profileSymbolName)
+                                .symbolRenderingMode(.monochrome)
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundStyle(profileAccent)
                         }
 
                         Text(compactDomainTitle)
@@ -2300,7 +2440,7 @@ private struct BrowserFloatingTopChromeOverlay<
 // MARK: - 100% Native iOS 27.2 `WKWebView.obscuredContentInsets` + Dynamic Top Inset Host
 
 private final class NativeWebKitHostController: UIViewController {
-    private(set) var hostedWebView: WKWebView?
+    private(set) weak var hostedWebView: WKWebView?
     private var contentOffsetObservation: NSKeyValueObservation?
     private var scrollState = BrowserChromeScrollState()
     private var isUpdatingModelInternally = false
@@ -2440,7 +2580,7 @@ private final class NativeWebKitHostController: UIViewController {
         setContentScrollView(nil, for: [.top, .bottom])
     }
 
-    func attach(_ webView: WKWebView) {
+    func attach(_ webView: WKWebView?) {
         guard hostedWebView !== webView else { return }
         let previousWebView = hostedWebView
         detachScrollObservers()
@@ -2464,6 +2604,10 @@ private final class NativeWebKitHostController: UIViewController {
         lastAppliedTopInset = -1
         lastAppliedBottomInset = -1
         scrollState.reset()
+        guard let webView else {
+            syncContentScrollViewOwnership()
+            return
+        }
         webView.isHidden = false
         webView.isUserInteractionEnabled = true
         // Manage scroll & obscured insets explicitly via `contentInset` + `WKWebView.obscuredContentInsets`
@@ -2553,7 +2697,7 @@ private final class NativeWebKitHostController: UIViewController {
 }
 
 private struct NativeWebKitHost: UIViewControllerRepresentable {
-    let webView: WKWebView
+    let webView: WKWebView?
     let desiredTopOverlayHeight: CGFloat
     let collapseModel: BrowserChromeCollapseModel
     let allowScrollCollapse: Bool

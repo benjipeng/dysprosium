@@ -568,6 +568,13 @@ public final class DarkReaderEngine: @unchecked Sendable {
         LiveContainerEnvironment.sharedDefaults.set(snapshot, forKey: Self.bypassedHostsKey)
     }
 
+    /// Clears legacy global auto-dark bypassed hosts once migrated to Default Profile `site_rules`.
+    public func clearLegacyBypassedHosts() {
+        bypassLock.lock()
+        bypassedHostsSet.removeAll(keepingCapacity: false)
+        bypassLock.unlock()
+    }
+
     private static let corsFetchSession: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
