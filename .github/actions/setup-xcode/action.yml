@@ -1,0 +1,61 @@
+name: Setup Xcode 27.2 & DerivedData Cache
+description: Selects the pinned Xcode toolchain and restores/saves DerivedData & SDK precompiled module caches.
+
+inputs:
+  xcode-version:
+    description: Major.minor Xcode version prefix to locate under /Applications
+    required: false
+    default: "27.2"
+  cache-prefix:
+    description: Primary cache key prefix (e.g. dysprosium-ci or dysprosium-release)
+    required: true
+  derived-data-path:
+    description: Workspace-relative DerivedData directory
+    required: false
+    default: "DerivedData"
+
+outputs:
+  version:
+    description: Resolved Xcode marketing version (e.g. 27.2)
+    value: ${{ steps.xcode.outputs.version }}
+  build:
+    description: Resolved Xcode build version (e.g. 24B8118)
+    value: ${{ steps.xcode.outputs.build }}
+
+runs:
+  using: composite
+  steps:
+    - name: Select Xcode toolchain
+      id: xcode
+      shell: bash
+      env:
+        XCODE_VERSION: ${{ inputs.xcode-version }}
+      run: |
+        set -euo pipefail
+        XCODE_APP="$(ls -d "/Applications/Xcode_${XCODE_VERSION}"*.app 2>/dev/null | sort -V | tail -n 1 || true)"
+        if [ -z "$XCODE_APP" ]; then
+          echo "Error: Xcode ${XCODE_VERSION} not found in /Applications" >&2
+          ls -la /Applications
+          exit 1
+        fi
+        sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+        XCODE_VER="$(xcodebuild -version | awk '/^Xcode / {print $2}')"
+        XCODE_BUILD="$(xcodebuild -version | awk '/^Build version / {print $3}')"
+        echo "Using Xcode ${XCODE_VER} (${XCODE_BUILD})"
+        xcodebuild -showsdks | grep -i iphone || true
+        {
+          echo "version=${XCODE_VER}"
+          echo "build=${XCODE_BUILD}"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Cache DerivedData & SDK modules
+      uses: actions/cache@v5
+      with:
+        path: |
+          ${{ inputs.derived-data-path }}/ModuleCache.noindex
+          ${{ inputs.derived-data-path }}/Build/Intermediates.noindex
+        key: ${{ inputs.cache-prefix }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('Dysprosium/**/*.swift', 'DysprosiumTests/**/*.swift', 'Dysprosium.xcodeproj/**', 'Version.xcconfig') }}
+        restore-keys: |
+          ${{ inputs.cache-prefix }}-${{ steps.xcode.outputs.build }}-
+          dysprosium-ci-${{ steps.xcode.outputs.build }}-
+          dysprosium-release-${{ steps.xcode.outputs.build }}-

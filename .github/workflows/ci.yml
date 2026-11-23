@@ -39,80 +39,41 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Select Xcode 27.2
+      - name: Setup Xcode 27.2 & Cache
         id: xcode
-        run: |
-          set -euo pipefail
-          XCODE_APP="$(ls -d /Applications/Xcode_27.2*.app 2>/dev/null | sort -V | tail -n 1 || true)"
-          if [ -z "$XCODE_APP" ]; then
-            echo "Error: Xcode 27.2 not found in /Applications" >&2
-            ls -la /Applications
-            exit 1
-          fi
-          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
-          XCODE_BUILD="$(xcodebuild -version | awk '/^Build version / {print $3}')"
-          xcodebuild -version
-          xcodebuild -showsdks | grep -i iphone
-          echo "build=$XCODE_BUILD" >> "$GITHUB_OUTPUT"
-
-      - name: Cache DerivedData & SDK Modules
-        uses: actions/cache@v5
+        uses: ./.github/actions/setup-xcode
         with:
-          path: |
-            DerivedData/ModuleCache.noindex
-            DerivedData/Build/Intermediates.noindex
-          key: dysprosium-ci-${{ steps.xcode.outputs.build }}-${{ hashFiles('Dysprosium/**/*.swift', 'DysprosiumTests/**/*.swift', 'Dysprosium.xcodeproj/**', 'Version.xcconfig') }}
-          restore-keys: |
-            dysprosium-ci-${{ steps.xcode.outputs.build }}-
-
-      - name: Resolve Fast iOS 27.2 Simulator
-        id: sim
-        run: |
-          set -euo pipefail
-          SIM_INFO="$(python3 - <<'PY'
-          import json, subprocess, sys
-          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
-          # Prefer single-display iPhone 17 on iOS 27.2 for fast, low-RAM headless CI;
-          # all iPhone Duo posture/hinge layout invariants are covered deterministically via pure geometry matrices.
-          preferred, fallback = None, None
-          for runtime, devices in data.get("devices", {}).items():
-              if "iOS-27-2" not in runtime:
-                  continue
-              for d in devices:
-                  if not d.get("isAvailable", False):
-                      continue
-                  name = d.get("name", "")
-                  if name == "iPhone 17" and preferred is None:
-                      preferred = (d["udid"], name)
-                  elif "iPhone" in name and "Duo" not in name and fallback is None:
-                      fallback = (d["udid"], name)
-          chosen = preferred or fallback
-          if not chosen:
-              sys.exit("No available iOS 27.2 iPhone simulator found")
-          print(f"{chosen[0]}|{chosen[1]}")
-          PY
-          )"
-          UDID="${SIM_INFO%%|*}"
-          NAME="${SIM_INFO#*|}"
-          echo "Resolved Simulator: $NAME ($UDID)"
-          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          cache-prefix: dysprosium-ci
 
       - name: Run DysprosiumTests
-        run: |
-          set -euo pipefail
-          unset SDKROOT
-          SIM_UDID="${{ steps.sim.outputs.udid }}"
-          xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
-          xcrun simctl bootstatus "$SIM_UDID" -b
-          xcodebuild test \
-            -project Dysprosium.xcodeproj \
-            -scheme Dysprosium \
-            -destination "platform=iOS Simulator,id=${SIM_UDID}" \
-            -derivedDataPath DerivedData \
-            CODE_SIGNING_ALLOWED=NO
+        id: tests
+        uses: ./.github/actions/run-tests
 
-      - name: Verify Release arm64 Compilation (iOS 27.2 SDK)
+      - name: Verify Release arm64 IPA (iOS 27.2 SDK)
+        id: pkg
+        uses: ./.github/actions/package-ipa
+
+      - name: Write CI Summary
+        if: always() && steps.pkg.outcome == 'success'
+        env:
+          VERSION: ${{ steps.pkg.outputs.version }}
+          BUILD_NUM: ${{ steps.pkg.outputs.build-number }}
+          IPA_NAME: ${{ steps.pkg.outputs.ipa-name }}
+          IPA_SIZE: ${{ steps.pkg.outputs.ipa-size }}
+          IPA_SHA256: ${{ steps.pkg.outputs.ipa-sha256 }}
+          SDK_VERSION: ${{ steps.pkg.outputs.sdk-version }}
+          SIM_NAME: ${{ steps.tests.outputs.simulator-name }}
+          XCODE_VERSION: ${{ steps.xcode.outputs.version }}
+          XCODE_BUILD: ${{ steps.xcode.outputs.build }}
         run: |
-          set -euo pipefail
-          DERIVED_DATA_PATH="$PWD/DerivedData" ./scripts/build_livecontainer_ipa.sh
-          ls -lh build/*.ipa
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ## CI Verified · Dysprosium v${VERSION} (build ${BUILD_NUM})
+
+          | Metric | Value |
+          | --- | --- |
+          | **Tests** | Passed on \`${SIM_NAME}\` |
+          | **IPA** | \`${IPA_NAME}\` (${IPA_SIZE}) |
+          | **SHA-256** | \`${IPA_SHA256}\` |
+          | **SDK** | \`iphoneos${SDK_VERSION}\` (\`arm64\`) |
+          | **Toolchain** | Xcode \`${XCODE_VERSION}\` (\`${XCODE_BUILD}\`) |
+          EOF

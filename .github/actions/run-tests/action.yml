@@ -1,0 +1,76 @@
+name: Run DysprosiumTests on iOS Simulator
+description: Resolves a fast single-display iOS Simulator, runs XCTest without code signing, and shuts the simulator down cleanly.
+
+inputs:
+  project:
+    description: Xcode project path
+    required: false
+    default: "Dysprosium.xcodeproj"
+  scheme:
+    description: Xcode scheme to test
+    required: false
+    default: "Dysprosium"
+  ios-runtime:
+    description: Target iOS Simulator runtime version
+    required: false
+    default: "27.2"
+  preferred-device:
+    description: Preferred simulator device name
+    required: false
+    default: "iPhone 17"
+  derived-data-path:
+    description: Workspace-relative DerivedData directory
+    required: false
+    default: "DerivedData"
+
+outputs:
+  simulator-udid:
+    description: Resolved iOS Simulator UDID
+    value: ${{ steps.sim.outputs.udid }}
+  simulator-name:
+    description: Resolved iOS Simulator display name
+    value: ${{ steps.sim.outputs.name }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve lightweight iOS Simulator
+      id: sim
+      shell: bash
+      env:
+        IOS_RUNTIME: ${{ inputs.ios-runtime }}
+        PREFERRED_DEVICE: ${{ inputs.preferred-device }}
+      run: |
+        set -euo pipefail
+        python3 scripts/ci_resolve_simulator.py \
+          --runtime "$IOS_RUNTIME" \
+          --preferred "$PREFERRED_DEVICE" \
+          --exclude Duo \
+          --github-output "$GITHUB_OUTPUT"
+
+    - name: Run XCTest suite
+      shell: bash
+      env:
+        PROJECT: ${{ inputs.project }}
+        SCHEME: ${{ inputs.scheme }}
+        SIM_UDID: ${{ steps.sim.outputs.udid }}
+        DERIVED_DATA_PATH: ${{ inputs.derived-data-path }}
+      run: |
+        set -euo pipefail
+        unset SDKROOT
+        xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
+        xcrun simctl bootstatus "$SIM_UDID" -b
+        xcodebuild test \
+          -project "$PROJECT" \
+          -scheme "$SCHEME" \
+          -destination "platform=iOS Simulator,id=${SIM_UDID}" \
+          -derivedDataPath "$DERIVED_DATA_PATH" \
+          CODE_SIGNING_ALLOWED=NO
+
+    - name: Shut down Simulator
+      if: always() && steps.sim.outputs.udid != ''
+      shell: bash
+      env:
+        SIM_UDID: ${{ steps.sim.outputs.udid }}
+      run: |
+        xcrun simctl shutdown "$SIM_UDID" 2>/dev/null || true
