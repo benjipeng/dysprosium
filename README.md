@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="DesignAssets/AppIconFinal/AppIcon-Dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="DesignAssets/AppIconFinal/AppIcon-Light.png">
-    <img src="DesignAssets/AppIconFinal/AppIcon-Dark.png" width="112" height="112" alt="Dysprosium App Icon">
+    <source media="(prefers-color-scheme: dark)" srcset="DesignAssets/AppIconFinal/AppIcon-Dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="DesignAssets/AppIconFinal/AppIcon-Light.svg">
+    <img src="DesignAssets/AppIconFinal/AppIcon-Dark.svg" width="112" height="112" alt="Dysprosium App Icon">
   </picture>
 </p>
 
