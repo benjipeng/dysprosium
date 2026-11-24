@@ -42,9 +42,9 @@ struct MediaRadarSheet: View {
                                 ProgressView()
                                     .controlSize(.mini)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("Inspecting streams…")
+                                    Text(L("Inspecting streams…"))
                                         .font(.subheadline.weight(.medium))
-                                    Text("Probing resolution tiers, durations, and byte sizes.")
+                                    Text(L("Probing resolution tiers, durations, and byte sizes."))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -53,9 +53,9 @@ struct MediaRadarSheet: View {
                             .accessibilityIdentifier("radar-probing-indicator")
                         } else {
                             ContentUnavailableView(
-                                "No Streams Detected Yet",
+                                L("No Streams Detected Yet"),
                                 systemImage: "dot.radiowaves.left.and.right",
-                                description: Text("Play any video on the webpage—captured HLS and MP4 streams appear here automatically.")
+                                description: Text(L("Play any video on the webpage—captured HLS and MP4 streams appear here automatically."))
                             )
                         }
                     }
@@ -73,7 +73,7 @@ struct MediaRadarSheet: View {
                             HStack(spacing: 10) {
                                 ProgressView()
                                     .controlSize(.mini)
-                                Text("Inspecting streams…")
+                                Text(L("Inspecting streams…"))
                                     .font(.caption.weight(.medium))
                                     .foregroundStyle(.secondary)
                                 Spacer(minLength: 0)
@@ -129,8 +129,8 @@ struct MediaRadarSheet: View {
             .listSectionSpacing(DysprosiumTokens.Space.sectionSpacing)
             .navigationTitle(
                 session.mediaGroups.isEmpty
-                    ? "Media Radar"
-                    : "Media Radar (\(session.mediaGroups.count))"
+                    ? L("Media Radar")
+                    : L("Media Radar (\(session.mediaGroups.count))")
             )
             .navigationBarTitleDisplayMode(.inline)
             .task {
@@ -139,20 +139,20 @@ struct MediaRadarSheet: View {
             .toolbar {
                 if !session.mediaGroups.isEmpty {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Clear") {
+                        Button(L("Clear")) {
                             session.clearCandidates()
                         }
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
+                    Button(L("Done")) {
                         dismiss()
                     }
                 }
 
                 if selectedGroups.count >= 2 {
                     ToolbarItemGroup(placement: .bottomBar) {
-                        Text("\(selectedGroups.count) selected · \(defaultLanes)× lanes")
+                        Text(L("\(selectedGroups.count) selected · \(defaultLanes)× lanes"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -168,7 +168,7 @@ struct MediaRadarSheet: View {
                                 onEnqueueBatch(batch)
                             }
                         } label: {
-                            Label("Download All (\(selectedGroups.count))", systemImage: "arrow.down.circle.fill")
+                            Label(L("Download All (\(selectedGroups.count))"), systemImage: "arrow.down.circle.fill")
                                 .symbolRenderingMode(.monochrome)
                         }
                         .buttonStyle(.borderedProminent)
@@ -193,11 +193,11 @@ struct MediaRadarSheet: View {
                         .font(.subheadline.weight(.semibold))
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Shield Paused on \(host)")
+                        Text(L("Shield Paused on \(host)"))
                             .font(.subheadline.weight(.medium))
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        Text("Media Radar remains active on this site.")
+                        Text(L("Media Radar remains active on this site."))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -207,7 +207,7 @@ struct MediaRadarSheet: View {
                     Button {
                         performToggleShieldBypass()
                     } label: {
-                        Text("Resume Shield")
+                        Text(L("Resume Shield"))
                             .font(.caption.weight(.semibold))
                     }
                     .controlSize(.small)
@@ -231,12 +231,12 @@ struct MediaRadarSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(
                                 isAllUnreachable
-                                    ? "Streams Unreachable Behind Shield?"
-                                    : "Anti-Adblock Blocking Stream?"
+                                    ? L("Streams Unreachable Behind Shield?")
+                                    : L("Anti-Adblock Blocking Stream?")
                             )
                             .font(.subheadline.weight(.medium))
 
-                            Text("Anti-adblock players may block stream loading. Pausing Shield reloads only this site while Media Radar stays active.")
+                            Text(L("Anti-adblock players may block stream loading. Pausing Shield reloads only this site while Media Radar stays active."))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -248,7 +248,7 @@ struct MediaRadarSheet: View {
                         HStack(spacing: 5) {
                             Image(systemName: "shield.slash")
                                 .symbolRenderingMode(.monochrome)
-                            Text("Try Pausing Shield on \(host)")
+                            Text(L("Try Pausing Shield on \(host)"))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
@@ -346,7 +346,7 @@ private struct DiscoveredMediaCardView: View {
                         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Play Clean Stream")
+                    .accessibilityLabel(L("Play Clean Stream"))
                     .accessibilityIdentifier("radar-poster-play-button")
                 }
 
@@ -368,7 +368,7 @@ private struct DiscoveredMediaCardView: View {
                         }
 
                         if !group.isDownloadSupported {
-                            Label("DASH · Unsupported", systemImage: "exclamationmark.triangle.fill")
+                            Label(L("DASH · Unsupported"), systemImage: "exclamationmark.triangle.fill")
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 8)
@@ -376,7 +376,7 @@ private struct DiscoveredMediaCardView: View {
                                 .background(.black.opacity(0.72), in: Capsule())
                                 .allowsHitTesting(false)
                         } else if let reason = group.unreachableReason {
-                            Label("Source Unreachable · \(reason)", systemImage: "wifi.exclamationmark")
+                            Label(L("Source Unreachable · \(reason)"), systemImage: "wifi.exclamationmark")
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 8)
@@ -384,7 +384,7 @@ private struct DiscoveredMediaCardView: View {
                                 .background(tokens.statusDanger.opacity(0.88), in: Capsule())
                                 .allowsHitTesting(false)
                         } else if group.isShortClipCandidate {
-                            Text("Short Clip")
+                            Text(L("Short Clip"))
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 7)
@@ -418,7 +418,7 @@ private struct DiscoveredMediaCardView: View {
                 if group.variants.count > 1 {
                     Menu {
                         Picker(
-                            "Quality",
+                            L("Quality"),
                             selection: Binding(
                                 get: { group.selectedVariant?.id ?? "" },
                                 set: { onSelectVariant($0) }
@@ -430,7 +430,7 @@ private struct DiscoveredMediaCardView: View {
                         }
                     } label: {
                         HStack(spacing: 4) {
-                            Text(group.selectedVariant?.badgeSummary ?? "Quality")
+                            Text(group.selectedVariant?.badgeSummary ?? L("Quality"))
                                 .lineLimit(1)
                             Image(systemName: "chevron.up.chevron.down")
                                 .symbolRenderingMode(.monochrome)
@@ -456,7 +456,7 @@ private struct DiscoveredMediaCardView: View {
                             HStack(spacing: 4) {
                                 Image(systemName: "play.fill")
                                     .symbolRenderingMode(.monochrome)
-                                Text("Play")
+                                Text(L("Play"))
                             }
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
@@ -486,7 +486,7 @@ private struct DiscoveredMediaCardView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
                             .symbolRenderingMode(.monochrome)
-                        Text("Open")
+                        Text(L("Open"))
                     }
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(tokens.onAccent)
@@ -501,7 +501,7 @@ private struct DiscoveredMediaCardView: View {
                     onInspectTransfer(job.id)
                 } label: {
                     let pct = Int((job.progressFraction * 100).rounded())
-                    Text(job.lifecycle == .muxing ? "Remuxing…" : (pct > 0 ? "\(pct)% · Queue" : "Queued"))
+                    Text(job.lifecycle == .muxing ? L("Remuxing…") : (pct > 0 ? L("\(pct)% · Queue") : L("Queued")))
                         .font(.caption.monospacedDigit().weight(.semibold))
                 }
                 .controlSize(.small)
@@ -511,7 +511,7 @@ private struct DiscoveredMediaCardView: View {
                 Button {
                     onInspectTransfer(job.id)
                 } label: {
-                    Text("\(job.lifecycle.rawValue) · Inspect")
+                    Text(job.lifecycle == .paused ? L("Paused · Inspect") : L("Failed · Inspect"))
                         .font(.caption.weight(.semibold))
                 }
                 .controlSize(.small)
@@ -519,7 +519,7 @@ private struct DiscoveredMediaCardView: View {
                 .buttonBorderShape(.capsule)
             }
         } else if !group.isDownloadSupported {
-            Text("Unsupported")
+            Text(L("Unsupported"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 10)
@@ -530,7 +530,7 @@ private struct DiscoveredMediaCardView: View {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.clockwise")
                         .symbolRenderingMode(.monochrome)
-                    Text("Try Anyway")
+                    Text(L("Try Anyway"))
                 }
                 .font(.caption.weight(.semibold))
             }
@@ -544,7 +544,7 @@ private struct DiscoveredMediaCardView: View {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.down.circle.fill")
                         .symbolRenderingMode(.monochrome)
-                    Text("Download")
+                    Text(L("Download"))
                 }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(tokens.onAccent)

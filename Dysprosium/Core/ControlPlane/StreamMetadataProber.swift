@@ -99,7 +99,7 @@ public struct SniffedVariantOption: Identifiable, Hashable, Sendable {
     func applyingLateMetadata(width newW: Int?, height newH: Int?, fileExtension newExt: String? = nil) -> Self {
         let resolvedW = width ?? newW
         let resolvedH = height ?? newH
-        let fallbackLabel = format == .hls ? "HLS Stream" : (format == .dash ? "DASH Stream" : "MP4 Video")
+        let fallbackLabel = format == .hls ? L("HLS Stream") : (format == .dash ? L("DASH Stream") : L("MP4 Video"))
         let label = (height == nil && resolvedH != nil)
             ? StreamMetadataProber.formatResolutionLabel(width: resolvedW, height: resolvedH, fallback: fallbackLabel)
             : resolutionLabel
@@ -321,7 +321,7 @@ public enum StreamMetadataProber {
             id: candidate.streamURL.absoluteString,
             url: effectiveURL,
             format: .dash,
-            resolutionLabel: formatResolutionLabel(width: w, height: h, fallback: "DASH Stream"),
+            resolutionLabel: formatResolutionLabel(width: w, height: h, fallback: L("DASH Stream")),
             width: w,
             height: h,
             bandwidthBps: nil,
@@ -390,8 +390,8 @@ public enum StreamMetadataProber {
             // When Cloudflare/WAF/cookie-partitioned origins reject out-of-band URLSession with 401/403,
             // fetch the manifest directly inside the live WKWebView iframe (genuine WebKit TLS + cookies),
             // preserving `Response.url` after redirects so relative HLS URIs resolve accurately.
-            if case .failure(let reason) = manifestResult,
-               (reason == "HTTP 403" || reason == "HTTP 401"),
+            if case .failure(let reason, let statusCode) = manifestResult,
+               (statusCode == 403 || statusCode == 401 || reason == "HTTP 403" || reason == "HTTP 401"),
                let inPageFetcher = inPageManifestFetcher,
                let live = await inPageFetcher(candidate.streamURL) {
                 manifestResult = .success(text: live.text, finalURL: live.finalURL)
@@ -493,7 +493,7 @@ public enum StreamMetadataProber {
                 parsedDuration = sumEXTINFDuration(manifestText)
                 sampledMediaPlaylistText = manifestText
             }
-        case .failure(let reason):
+        case .failure(let reason, _):
             manifestFetchError = reason
         }
 
@@ -561,7 +561,7 @@ public enum StreamMetadataProber {
         if variants.isEmpty {
             let h = avProbe.height ?? candidate.hintedHeight ?? MediaURLClassifier.inferredPixelHeight(fromQualityScore: candidate.qualityScore)
             let w = avProbe.width ?? candidate.hintedWidth
-            let label = formatResolutionLabel(width: w, height: h, fallback: "HLS Stream")
+            let label = formatResolutionLabel(width: w, height: h, fallback: L("HLS Stream"))
             var inferredBytes = extractTarRangeStartOffset(from: effectiveManifestURL)
             if inferredBytes == nil,
                let mediaText = sampledMediaPlaylistText,
@@ -815,7 +815,7 @@ public enum StreamMetadataProber {
         if isExplicitNonMediaCT || isTinyNonMedia {
             let snippet = sanitizedBodySnippet(from: prefix)
             let sizeDesc = effectiveKnownBytes.map { "\($0) B" } ?? "\(prefix.count) B"
-            let reason = snippet.map { "Rejected (\($0))" } ?? "Not a video (\(sizeDesc))"
+            let reason = snippet.map { L("Rejected (\($0))") } ?? L("Not a video (\(sizeDesc))")
             probeLogger.notice("Direct probe rejected status=\(http.statusCode) ct=\(ct, privacy: .public) bytes=\(sizeDesc, privacy: .public) snippet=\(snippet ?? "<binary>", privacy: .private)")
             return DirectHeaderProbe(
                 byteSize: nil,
@@ -988,7 +988,7 @@ public enum StreamMetadataProber {
             let label = formatResolutionLabel(
                 width: width,
                 height: height,
-                fallback: containerExt == "mp4" ? "MP4 Video" : "\(containerExt.uppercased()) Media"
+                fallback: containerExt == "mp4" ? L("MP4 Video") : L("\(containerExt.uppercased()) Media")
             )
             let option = SniffedVariantOption(
                 id: candidate.streamURL.absoluteString,
@@ -1038,7 +1038,7 @@ public enum StreamMetadataProber {
         let label = formatResolutionLabel(
             width: width,
             height: height,
-            fallback: containerExt == "mp4" ? "MP4 Video" : "\(containerExt.uppercased()) Media"
+            fallback: containerExt == "mp4" ? L("MP4 Video") : L("\(containerExt.uppercased()) Media")
         )
 
         let option = SniffedVariantOption(
@@ -1250,7 +1250,7 @@ public enum StreamMetadataProber {
                         let label = formatResolutionLabel(
                             width: width,
                             height: height,
-                            fallback: bw.map { "\(String(format: "%.1f", Double($0) / 1_000_000.0)) Mbps HLS" } ?? "HLS Variant"
+                            fallback: bw.map { L("\(Double($0) / 1_000_000.0, specifier: "%.1f") Mbps HLS") } ?? L("HLS Variant")
                         )
                         let rank = (height ?? 0) * 10_000 + Int((bw ?? 0) / 1_000)
                         let variantHeaders = reScopedHeaders(
@@ -1539,7 +1539,7 @@ public enum StreamMetadataProber {
 
     enum ManifestFetchResult {
         case success(text: String, finalURL: URL)
-        case failure(String)
+        case failure(String, statusCode: Int? = nil)
     }
 
     private static let maxManifestBytes = 512 * 1024
@@ -1558,17 +1558,17 @@ public enum StreamMetadataProber {
             )
             defer { asyncBytes.task.cancel() }
             guard let http = resp as? HTTPURLResponse else {
-                return .failure("Invalid response")
+                return .failure(L("Invalid response"))
             }
             guard (200...299).contains(http.statusCode) else {
-                return .failure("HTTP \(http.statusCode)")
+                return .failure(L("HTTP \(http.statusCode)"), statusCode: http.statusCode)
             }
             let ct = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
             if (ct.hasPrefix("video/") || ct.hasPrefix("audio/")) && !ct.contains("mpegurl") {
-                return .failure("Binary media response")
+                return .failure(L("Binary media response"))
             }
             if http.expectedContentLength > Int64(maxManifestBytes) {
-                return .failure("Playlist too large")
+                return .failure(L("Playlist too large"))
             }
 
             var buffer = Data()
@@ -1581,37 +1581,37 @@ public enum StreamMetadataProber {
                     let trimmed = head.trimmingCharacters(in: .whitespacesAndNewlines)
                     if trimmed.count >= 7 {
                         guard trimmed.hasPrefix("#EXTM3U") else {
-                            return .failure("Not an HLS playlist")
+                            return .failure(L("Not an HLS playlist"))
                         }
                         validatedPrefix = true
                     }
                 }
                 if buffer.count > maxManifestBytes {
-                    return .failure("Playlist too large")
+                    return .failure(L("Playlist too large"))
                 }
             }
             guard let text = String(data: buffer, encoding: .utf8) ?? String(data: buffer, encoding: .isoLatin1) else {
-                return .failure("Unreadable playlist")
+                return .failure(L("Unreadable playlist"))
             }
             guard text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#EXTM3U") else {
-                return .failure("Not an HLS playlist")
+                return .failure(L("Not an HLS playlist"))
             }
             return .success(text: text, finalURL: http.url ?? url)
         } catch let err as URLError {
             switch err.code {
             case .timedOut:
-                return .failure("Timed out")
+                return .failure(L("Timed out"))
             case .cannotFindHost, .dnsLookupFailed:
-                return .failure("Host not found")
+                return .failure(L("Host not found"))
             case .cannotConnectToHost, .networkConnectionLost:
-                return .failure("Connection failed")
+                return .failure(L("Connection failed"))
             case .secureConnectionFailed, .serverCertificateUntrusted:
-                return .failure("TLS error")
+                return .failure(L("TLS error"))
             default:
-                return .failure("Unreachable")
+                return .failure(L("Unreachable"))
             }
         } catch {
-            return .failure("Unreachable")
+            return .failure(L("Unreachable"))
         }
     }
 

@@ -190,13 +190,13 @@ struct CleanroomBrowserWorkspaceView: View {
                 } else if let loadError = session.lastLoadError, !session.isLoading {
                     ContentUnavailableView {
                         Label(
-                            loadError.isTLSFailure ? "Secure Connection Failed" : "Page Failed to Load",
+                            loadError.isTLSFailure ? L("Secure Connection Failed") : L("Page Failed to Load"),
                             systemImage: loadError.isTLSFailure ? "lock.trianglebadge.exclamationmark" : "wifi.exclamationmark"
                         )
                     } description: {
                         Text(loadError.localizedDescription)
                     } actions: {
-                        Button("Try Again") {
+                        Button(L("Try Again")) {
                             session.retryLastFailedLoad()
                         }
                         .buttonStyle(.borderedProminent)
@@ -325,22 +325,22 @@ struct CleanroomBrowserWorkspaceView: View {
                     ) { dialog in
                         switch dialog.kind {
                         case .alert:
-                            Button("OK") {
+                            Button(L("OK")) {
                                 dialog.resolveAlert()
                             }
                         case .confirm:
-                            Button("Cancel", role: .cancel) {
+                            Button(L("Cancel"), role: .cancel) {
                                 dialog.resolveConfirm(false)
                             }
-                            Button("OK") {
+                            Button(L("OK")) {
                                 dialog.resolveConfirm(true)
                             }
                         case .prompt:
-                            TextField("Response", text: $jsPromptInput)
-                            Button("Cancel", role: .cancel) {
+                            TextField(L("Response"), text: $jsPromptInput)
+                            Button(L("Cancel"), role: .cancel) {
                                 dialog.resolvePrompt(nil)
                             }
-                            Button("OK") {
+                            Button(L("OK")) {
                                 dialog.resolvePrompt(jsPromptInput)
                             }
                         }
@@ -363,25 +363,25 @@ struct CleanroomBrowserWorkspaceView: View {
                     ) { challenge in
                         switch challenge.kind {
                         case .httpCredentials:
-                            TextField("Username", text: $authUsername)
+                            TextField(L("Username"), text: $authUsername)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
-                            SecureField("Password", text: $authPassword)
-                            Button("Cancel", role: .cancel) {
+                            SecureField(L("Password"), text: $authPassword)
+                            Button(L("Cancel"), role: .cancel) {
                                 challenge.cancel()
                                 authUsername = ""
                                 authPassword = ""
                             }
-                            Button("Sign In") {
+                            Button(L("Sign In")) {
                                 challenge.resolveCredentials(username: authUsername, password: authPassword)
                                 authUsername = ""
                                 authPassword = ""
                             }
                         case .lanSelfSignedTrust:
-                            Button("Cancel", role: .cancel) {
+                            Button(L("Cancel"), role: .cancel) {
                                 challenge.resolveTrust(proceed: false)
                             }
-                            Button("Continue Anyway", role: .destructive) {
+                            Button(L("Continue Anyway"), role: .destructive) {
                                 challenge.resolveTrust(proceed: true)
                             }
                         }
@@ -389,12 +389,12 @@ struct CleanroomBrowserWorkspaceView: View {
                         switch challenge.kind {
                         case .httpCredentials(let realm):
                             if let realm, !realm.isEmpty {
-                                Text("Authentication required for \(challenge.host) (\(realm)).")
+                                Text(L("Authentication required for \(challenge.host) (\(realm))."))
                             } else {
-                                Text("Enter credentials for \(challenge.host).")
+                                Text(L("Enter credentials for \(challenge.host)."))
                             }
                         case .lanSelfSignedTrust(let reason):
-                            Text("This local network server (\(challenge.host)) presented an untrusted or self-signed certificate. \(reason)")
+                            Text(L("This local network server (\(challenge.host)) presented an untrusted or self-signed certificate. \(reason)"))
                         }
                     }
             }
@@ -417,7 +417,7 @@ struct CleanroomBrowserWorkspaceView: View {
                                 }
                             }
                         } label: {
-                            Label("Back", systemImage: "chevron.left")
+                            Label(L("Back"), systemImage: "chevron.left")
                                 .symbolRenderingMode(.monochrome)
                         } primaryAction: {
                             session.navigateBack()
@@ -433,12 +433,12 @@ struct CleanroomBrowserWorkspaceView: View {
                     } label: {
                         let radarCount = session.discoveredMediaBadgeCount
                         if radarCount == 0 {
-                            Label("Media Radar", systemImage: "dot.radiowaves.left.and.right")
+                            Label(L("Media Radar"), systemImage: "dot.radiowaves.left.and.right")
                                 .symbolRenderingMode(.monochrome)
                                 .symbolEffect(.variableColor.iterative, isActive: session.isProbingMedia || session.activeProbeCount > 0)
                         } else {
                             Label {
-                                Text("Media Radar (\(radarCount))")
+                                Text(L("Media Radar (\(radarCount))"))
                             } icon: {
                                 Image(uiImage: makeBadgedRadarToolbarImage(count: radarCount, compact: false))
                             }
@@ -453,8 +453,8 @@ struct CleanroomBrowserWorkspaceView: View {
                     } label: {
                         Label(
                             session.isPrivate
-                                ? "Private Tabs (\(activeScopeTabCount))"
-                                : "Tabs (\(activeScopeTabCount))",
+                                ? L("Private Tabs (\(activeScopeTabCount))")
+                                : L("Tabs (\(activeScopeTabCount))"),
                             systemImage: tabsToolbarSymbol
                         )
                         .symbolRenderingMode(.monochrome)
@@ -607,11 +607,11 @@ struct CleanroomBrowserWorkspaceView: View {
                         isShowingBookmarksHistorySheet = false
                     }
                 )
-                .navigationTitle("Bookmarks & History")
+                .navigationTitle(L("Bookmarks & History"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") {
+                        Button(L("Done")) {
                             isShowingBookmarksHistorySheet = false
                         }
                     }
@@ -689,8 +689,8 @@ struct CleanroomBrowserWorkspaceView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(
                 session.discoveredMediaBadgeCount == 0
-                    ? "Media Radar"
-                    : "Media Radar (\(session.discoveredMediaBadgeCount))"
+                    ? L("Media Radar")
+                    : L("Media Radar (\(session.discoveredMediaBadgeCount))")
             )
             .accessibilityIdentifier("browser-radar-button")
 
@@ -712,8 +712,8 @@ struct CleanroomBrowserWorkspaceView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(
                 session.isPrivate
-                    ? "Private Tabs (\(activeScopeTabCount))"
-                    : "Tabs (\(activeScopeTabCount))"
+                    ? L("Private Tabs (\(activeScopeTabCount))")
+                    : L("Tabs (\(activeScopeTabCount))")
             )
             .accessibilityIdentifier("browser-tabs-button")
 
@@ -728,7 +728,7 @@ struct CleanroomBrowserWorkspaceView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("More")
+            .accessibilityLabel(L("More"))
             .accessibilityIdentifier("browser-more-button")
         }
         .padding(.horizontal, 4)
@@ -760,7 +760,7 @@ struct CleanroomBrowserWorkspaceView: View {
             session.navigateBack()
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Back")
+        .accessibilityLabel(L("Back"))
         .accessibilityIdentifier("browser-back-button")
     }
 
@@ -772,7 +772,7 @@ struct CleanroomBrowserWorkspaceView: View {
                     Button {
                         session.navigateBack()
                     } label: {
-                        Label("Go Back", systemImage: "chevron.left")
+                        Label(L("Go Back"), systemImage: "chevron.left")
                     }
                     Divider()
                     ForEach(session.backHistoryItems) { item in
@@ -786,13 +786,13 @@ struct CleanroomBrowserWorkspaceView: View {
                         }
                     }
                 } label: {
-                    Label("Back", systemImage: "chevron.left")
+                    Label(L("Back"), systemImage: "chevron.left")
                 }
             } else {
                 Button {
                     session.navigateBack()
                 } label: {
-                    Label("Back", systemImage: "chevron.left")
+                    Label(L("Back"), systemImage: "chevron.left")
                 }
                 .disabled(!session.canGoBack)
             }
@@ -802,7 +802,7 @@ struct CleanroomBrowserWorkspaceView: View {
                     Button {
                         session.navigateForward()
                     } label: {
-                        Label("Go Forward", systemImage: "chevron.right")
+                        Label(L("Go Forward"), systemImage: "chevron.right")
                     }
                     Divider()
                     ForEach(session.forwardHistoryItems) { item in
@@ -816,13 +816,13 @@ struct CleanroomBrowserWorkspaceView: View {
                         }
                     }
                 } label: {
-                    Label("Forward", systemImage: "chevron.right")
+                    Label(L("Forward"), systemImage: "chevron.right")
                 }
             } else {
                 Button {
                     session.navigateForward()
                 } label: {
-                    Label("Forward", systemImage: "chevron.right")
+                    Label(L("Forward"), systemImage: "chevron.right")
                 }
                 .disabled(!session.canGoForward)
             }
@@ -832,7 +832,7 @@ struct CleanroomBrowserWorkspaceView: View {
                     session.reloadCurrentContent()
                 } label: {
                     Label(
-                        session.activePDF != nil ? "Reload PDF" : "Reload Webpage",
+                        session.activePDF != nil ? L("Reload PDF") : L("Reload Webpage"),
                         systemImage: "arrow.clockwise"
                     )
                 }
@@ -851,7 +851,7 @@ struct CleanroomBrowserWorkspaceView: View {
                     }
                 } label: {
                     Label(
-                        session.activePDF != nil ? "Find in PDF" : "Find on Page",
+                        session.activePDF != nil ? L("Find in PDF") : L("Find on Page"),
                         systemImage: "doc.text.magnifyingglass"
                     )
                 }
@@ -866,8 +866,8 @@ struct CleanroomBrowserWorkspaceView: View {
                     } label: {
                         Label(
                             activePDF.isSavedInVault
-                                ? "View Saved PDF in Downloads"
-                                : "Save PDF to Downloads (\(activePDF.formattedFileSize))",
+                                ? L("View Saved PDF in Downloads")
+                                : L("Save PDF to Downloads (\(activePDF.formattedFileSize))"),
                             systemImage: activePDF.isSavedInVault ? "checkmark.circle.fill" : "arrow.down.to.line"
                         )
                     }
@@ -875,21 +875,21 @@ struct CleanroomBrowserWorkspaceView: View {
                     Button {
                         activeSharePayload = BrowserSharePayload(items: [activePDF.localFileURL])
                     } label: {
-                        Label("Share Original PDF…", systemImage: "square.and.arrow.up")
+                        Label(L("Share Original PDF…"), systemImage: "square.and.arrow.up")
                     }
                 } else {
                     if let shareURL = session.currentURL {
                         Button {
                             activeSharePayload = BrowserSharePayload(items: [shareURL])
                         } label: {
-                            Label("Share Page…", systemImage: "square.and.arrow.up")
+                            Label(L("Share Page…"), systemImage: "square.and.arrow.up")
                         }
                     }
 
                     Button {
                         exportCurrentPageAsPDF()
                     } label: {
-                        Label("Save as PDF…", systemImage: "doc.richtext")
+                        Label(L("Save as PDF…"), systemImage: "doc.richtext")
                     }
                 }
 
@@ -899,14 +899,14 @@ struct CleanroomBrowserWorkspaceView: View {
                         showTransientToast(
                             BrowserToastBanner(
                                 icon: "doc.on.doc",
-                                title: "Copied Link",
+                                title: L("Copied Link"),
                                 tint: tokens.accent,
                                 actionTitle: nil,
                                 action: nil
                             )
                         )
                     } label: {
-                        Label("Copy Link", systemImage: "doc.on.doc")
+                        Label(L("Copy Link"), systemImage: "doc.on.doc")
                     }
                 }
 
@@ -914,13 +914,13 @@ struct CleanroomBrowserWorkspaceView: View {
                     Button {
                         favoriteEditorTarget = .edit(existing)
                     } label: {
-                        Label("Edit Favorite…", systemImage: "star.fill")
+                        Label(L("Edit Favorite…"), systemImage: "star.fill")
                     }
 
                     Button(role: .destructive) {
                         browserStore.removeBookmark(id: existing.id)
                     } label: {
-                        Label("Remove Favorite", systemImage: "star.slash")
+                        Label(L("Remove Favorite"), systemImage: "star.slash")
                     }
                 } else {
                     Button {
@@ -931,7 +931,7 @@ struct CleanroomBrowserWorkspaceView: View {
                             defaultFolderID: nil
                         )
                     } label: {
-                        Label("Add to Favorites…", systemImage: "star")
+                        Label(L("Add to Favorites…"), systemImage: "star")
                     }
                 }
             }
@@ -947,38 +947,38 @@ struct CleanroomBrowserWorkspaceView: View {
                         onManageProfiles: { isShowingProfilesSheet = true }
                     )
                 } label: {
-                    Label("Profile: \(browserStore.activeProfile.name)", systemImage: browserStore.activeProfile.symbolName)
+                    Label(L("Profile: \(browserStore.activeProfile.localizedDisplayName)"), systemImage: browserStore.activeProfile.symbolName)
                 }
             } else {
                 Button {
                     isShowingNewProfileSheet = true
                 } label: {
-                    Label("New Profile…", systemImage: "person.crop.circle.badge.plus")
+                    Label(L("New Profile…"), systemImage: "person.crop.circle.badge.plus")
                 }
             }
 
             Button {
                 isShowingBookmarksHistorySheet = true
             } label: {
-                Label("Bookmarks & History", systemImage: "book")
+                Label(L("Bookmarks & History"), systemImage: "book")
             }
 
             Button {
                 browserStore.openNewTab(isPrivate: false, activate: true)
             } label: {
-                Label("New Tab", systemImage: "plus.square")
+                Label(L("New Tab"), systemImage: "plus.square")
             }
 
             Button {
                 browserStore.openNewTab(isPrivate: true, activate: true)
             } label: {
-                Label("New Private Tab", systemImage: "hand.raised")
+                Label(L("New Private Tab"), systemImage: "hand.raised")
             }
 
             Button(role: .destructive) {
                 isShowingClearDataSheet = true
             } label: {
-                Label("Clear Browsing Data…", systemImage: "trash.slash")
+                Label(L("Clear Browsing Data…"), systemImage: "trash.slash")
             }
         }
     }
@@ -992,7 +992,7 @@ struct CleanroomBrowserWorkspaceView: View {
 
             OmniboxAddressField(
                 tabID: session.id,
-                placeholder: session.isPrivate ? "Private search or URL…" : "Search or enter website",
+                placeholder: session.isPrivate ? L("Private search or URL…") : L("Search or enter website"),
                 focusTrigger: omniboxFocusTrigger,
                 dismissTrigger: omniboxDismissTrigger,
                 text: $addressInput,
@@ -1024,7 +1024,7 @@ struct CleanroomBrowserWorkspaceView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(session.isLoading ? "Stop Loading" : "Refresh")
+                .accessibilityLabel(session.isLoading ? L("Stop Loading") : L("Refresh"))
                 .accessibilityIdentifier("browser-reload-button")
             }
         }
@@ -1051,8 +1051,8 @@ struct CleanroomBrowserWorkspaceView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Profile: \(activeProfile.name)")
-        .accessibilityHint("Switch profile")
+        .accessibilityLabel(L("Profile: \(activeProfile.localizedDisplayName)"))
+        .accessibilityHint(L("Switch profile"))
         .accessibilityIdentifier("browser-profile-chip")
     }
 
@@ -1062,13 +1062,13 @@ struct CleanroomBrowserWorkspaceView: View {
             Menu {
                 Section("\(activePDF.suggestedFilename) · \(activePDF.formattedFileSize)") {
                     Label(
-                        activePDF.isLocalFileSource ? "Local PDF Document" : "Online PDF · \(session.displayHost)",
+                        activePDF.isLocalFileSource ? L("Local PDF Document") : L("Online PDF · \(session.displayHost)"),
                         systemImage: activePDF.isLocalFileSource ? "doc.richtext" : (session.isSecureConnection ? "lock.fill" : "globe")
                     )
                 }
 
-                Section("Reading Appearance") {
-                    Picker("PDF Appearance", selection: $browserStore.pdfAppearanceMode) {
+                Section(L("Reading Appearance")) {
+                    Picker(L("PDF Appearance"), selection: $browserStore.pdfAppearanceMode) {
                         ForEach(PDFAppearanceMode.allCases) { mode in
                             Label(mode.title, systemImage: mode.systemImage).tag(mode)
                         }
@@ -1076,8 +1076,8 @@ struct CleanroomBrowserWorkspaceView: View {
                 }
 
                 if activePDF.pageCount > 1 {
-                    Section("Page Layout") {
-                        Picker("PDF Layout", selection: $browserStore.pdfDisplayLayoutMode) {
+                    Section(L("Page Layout")) {
+                        Picker(L("PDF Layout"), selection: $browserStore.pdfDisplayLayoutMode) {
                             ForEach(PDFDisplayLayoutMode.allCases) { mode in
                                 Label(mode.title, systemImage: mode.systemImage).tag(mode)
                             }
@@ -1085,22 +1085,22 @@ struct CleanroomBrowserWorkspaceView: View {
                     }
                 }
 
-                Section("PDF Zoom") {
+                Section(L("PDF Zoom")) {
                     ControlGroup {
                         Button {
                             activePDF.dispatch(.zoomOut)
                         } label: {
-                            Label("Zoom Out −", systemImage: "minus.magnifyingglass")
+                            Label(L("Zoom Out −"), systemImage: "minus.magnifyingglass")
                         }
                         Button {
                             activePDF.dispatch(.resetZoom)
                         } label: {
-                            Label("Fit Width", systemImage: "arrow.uturn.backward")
+                            Label(L("Fit Width"), systemImage: "arrow.uturn.backward")
                         }
                         Button {
                             activePDF.dispatch(.zoomIn)
                         } label: {
-                            Label("Zoom In +", systemImage: "plus.magnifyingglass")
+                            Label(L("Zoom In +"), systemImage: "plus.magnifyingglass")
                         }
                     }
                 }
@@ -1114,7 +1114,7 @@ struct CleanroomBrowserWorkspaceView: View {
                         }
                     } label: {
                         Label(
-                            activePDF.isSavedInVault ? "View in Downloads" : "Save PDF to Downloads",
+                            activePDF.isSavedInVault ? L("View in Downloads") : L("Save PDF to Downloads"),
                             systemImage: activePDF.isSavedInVault ? "checkmark.circle.fill" : "arrow.down.to.line"
                         )
                     }
@@ -1122,14 +1122,14 @@ struct CleanroomBrowserWorkspaceView: View {
                     Button {
                         activeSharePayload = BrowserSharePayload(items: [activePDF.localFileURL])
                     } label: {
-                        Label("Share Original PDF…", systemImage: "square.and.arrow.up")
+                        Label(L("Share Original PDF…"), systemImage: "square.and.arrow.up")
                     }
                 }
             } label: {
                 omniboxLeadingIconView
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("PDF Reader Options")
+            .accessibilityLabel(L("PDF Reader Options"))
             .accessibilityIdentifier("browser-shield-button")
         } else if let host = session.currentBypassableHost, !isStartPageVisible {
             let tabIsPrivate = session.isPrivate
@@ -1141,33 +1141,33 @@ struct CleanroomBrowserWorkspaceView: View {
             let isDesktopSite = (browserStore.effectiveUserAgent(forHost: host, isPrivate: tabIsPrivate) == .macosSafari)
 
             Menu {
-                Section(isSecure ? "Secure HTTPS · \(host)" : "Not Secure HTTP · \(host)") {
+                Section(isSecure ? L("Secure HTTPS · \(host)") : L("Not Secure HTTP · \(host)")) {
                     Label(
-                        isSecure ? "Encrypted Connection" : "Connection Not Encrypted",
+                        isSecure ? L("Encrypted Connection") : L("Connection Not Encrypted"),
                         systemImage: isSecure ? "lock.fill" : "exclamationmark.triangle"
                     )
                 }
 
-                Section("Page Zoom · \(zoomPercent)%") {
+                Section(L("Page Zoom · \(zoomPercent)%")) {
                     ControlGroup {
                         Button {
                             stepSiteZoom(forHost: host, direction: -1)
                         } label: {
-                            Label("Zoom Out −", systemImage: "minus.magnifyingglass")
+                            Label(L("Zoom Out −"), systemImage: "minus.magnifyingglass")
                         }
                         .disabled(currentZoom <= SiteRuleRecord.minPageZoom + 0.01)
 
                         Button {
                             applySiteZoom(1.0, forHost: host)
                         } label: {
-                            Label("Reset 100%", systemImage: "arrow.uturn.backward")
+                            Label(L("Reset 100%"), systemImage: "arrow.uturn.backward")
                         }
                         .disabled(abs(currentZoom - 1.0) < 0.01)
 
                         Button {
                             stepSiteZoom(forHost: host, direction: 1)
                         } label: {
-                            Label("Zoom In +", systemImage: "plus.magnifyingglass")
+                            Label(L("Zoom In +"), systemImage: "plus.magnifyingglass")
                         }
                         .disabled(currentZoom >= SiteRuleRecord.maxPageZoom - 0.01)
                     }
@@ -1186,7 +1186,7 @@ struct CleanroomBrowserWorkspaceView: View {
                             }
                         )
                     ) {
-                        Label("Per-Site Shield", systemImage: siteShieldEnabled ? "checkmark.shield.fill" : "shield.slash")
+                        Label(L("Per-Site Shield"), systemImage: siteShieldEnabled ? "checkmark.shield.fill" : "shield.slash")
                     }
 
                     Toggle(
@@ -1201,20 +1201,20 @@ struct CleanroomBrowserWorkspaceView: View {
                             }
                         )
                     ) {
-                        Label("Dark Mode on Site", systemImage: siteDarkEnabled ? "moon.stars.fill" : "moon")
+                        Label(L("Dark Mode on Site"), systemImage: siteDarkEnabled ? "moon.stars.fill" : "moon")
                     }
 
                     Menu {
-                        Section("Theme Preset") {
-                            Picker("Web Theme", selection: $browserStore.webDarkThemePreset) {
+                        Section(L("Theme Preset")) {
+                            Picker(L("Web Theme"), selection: $browserStore.webDarkThemePreset) {
                                 ForEach(DarkReaderEngine.WebDarkThemePreset.allCases) { preset in
                                     Text(preset.title).tag(preset)
                                 }
                             }
                         }
 
-                        Section("Global Mode") {
-                            Picker("Web Dark Mode", selection: $browserStore.webDarkModeBehavior) {
+                        Section(L("Global Mode")) {
+                            Picker(L("Web Dark Mode"), selection: $browserStore.webDarkModeBehavior) {
                                 ForEach(DarkReaderEngine.WebDarkModeBehavior.allCases) { mode in
                                     Text(mode.title).tag(mode)
                                 }
@@ -1222,7 +1222,7 @@ struct CleanroomBrowserWorkspaceView: View {
                         }
                     } label: {
                         Label(
-                            "Web Theme (\(browserStore.webDarkThemePreset.title))",
+                            L("Web Theme (\(browserStore.webDarkThemePreset.title))"),
                             systemImage: "circle.lefthalf.filled"
                         )
                     }
@@ -1239,7 +1239,7 @@ struct CleanroomBrowserWorkspaceView: View {
                             }
                         )
                     ) {
-                        Label("Request Desktop Website", systemImage: "laptopcomputer")
+                        Label(L("Request Desktop Website"), systemImage: "laptopcomputer")
                     }
                 }
 
@@ -1247,14 +1247,14 @@ struct CleanroomBrowserWorkspaceView: View {
                     Button {
                         session.rotateFingerprintAndReload()
                     } label: {
-                        Label("Rotate Fingerprint & Reload", systemImage: "viewfinder.circle")
+                        Label(L("Rotate Fingerprint & Reload"), systemImage: "viewfinder.circle")
                     }
 
                     Button {
                         isShowingShieldSheet = true
                     } label: {
                         Label(
-                            "Shield & Filters (\(shieldBadgeTitle))…",
+                            L("Shield & Filters (\(shieldBadgeTitle))…"),
                             systemImage: "slider.horizontal.3"
                         )
                     }
@@ -1344,7 +1344,7 @@ struct CleanroomBrowserWorkspaceView: View {
                 .foregroundStyle(tokens.statusWarning)
 
             VStack(alignment: .leading, spacing: 0) {
-                Text("Popup Blocked")
+                Text(L("Popup Blocked"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
                 if let host = blockedURL.host(), !host.isEmpty {
@@ -1357,7 +1357,7 @@ struct CleanroomBrowserWorkspaceView: View {
 
             Spacer(minLength: 4)
 
-            Button("Allow") {
+            Button(L("Allow")) {
                 session.allowLastBlockedPopup()
             }
             .font(.caption.weight(.semibold))
@@ -1377,7 +1377,7 @@ struct CleanroomBrowserWorkspaceView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss Popup Banner")
+            .accessibilityLabel(L("Dismiss Popup Banner"))
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
@@ -1435,7 +1435,7 @@ struct CleanroomBrowserWorkspaceView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss Notification")
+            .accessibilityLabel(L("Dismiss Notification"))
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
@@ -1451,7 +1451,7 @@ struct CleanroomBrowserWorkspaceView: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(tokens.glassIconSecondary)
 
-            Text("Clipboard Link")
+            Text(L("Clipboard Link"))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
@@ -1478,7 +1478,7 @@ struct CleanroomBrowserWorkspaceView: View {
                     .foregroundStyle(tokens.glassIconSecondary)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss Clipboard Prompt")
+            .accessibilityLabel(L("Dismiss Clipboard Prompt"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -1597,7 +1597,7 @@ struct CleanroomBrowserWorkspaceView: View {
                 showTransientToast(
                     BrowserToastBanner(
                         icon: "exclamationmark.triangle.fill",
-                        title: "Could not create page PDF",
+                        title: L("Could not create page PDF"),
                         tint: tokens.statusWarning,
                         actionTitle: nil,
                         action: nil
@@ -1625,9 +1625,9 @@ struct CleanroomBrowserWorkspaceView: View {
                 showTransientToast(
                     BrowserToastBanner(
                         icon: "checkmark.circle.fill",
-                        title: "Saved \(savedURL.lastPathComponent)",
+                        title: L("Saved \(savedURL.lastPathComponent)"),
                         tint: tokens.statusSuccess,
-                        actionTitle: "View",
+                        actionTitle: L("View"),
                         action: .openDownloads
                     )
                 )
@@ -1635,7 +1635,7 @@ struct CleanroomBrowserWorkspaceView: View {
                 showTransientToast(
                     BrowserToastBanner(
                         icon: "exclamationmark.triangle.fill",
-                        title: "Could not save PDF",
+                        title: L("Could not save PDF"),
                         tint: tokens.statusDanger,
                         actionTitle: nil,
                         action: nil
@@ -1673,12 +1673,12 @@ struct CleanroomBrowserWorkspaceView: View {
     }
 
     private func authAlertTitle(for challenge: WebAuthChallengeRequest?) -> String {
-        guard let challenge else { return "Authentication" }
+        guard let challenge else { return L("Authentication") }
         switch challenge.kind {
         case .httpCredentials:
-            return "Sign in to \(challenge.host)"
+            return L("Sign in to \(challenge.host)")
         case .lanSelfSignedTrust:
-            return "Untrusted Local Certificate"
+            return L("Untrusted Local Certificate")
         }
     }
 
@@ -1719,14 +1719,15 @@ struct CleanroomBrowserWorkspaceView: View {
                     sourceProfileID: request.sourceProfileID
                 )
                 let fallbackName = request.url.lastPathComponent
-                let name = (request.suggestedFilename?.isEmpty == false ? request.suggestedFilename : nil)
-                    ?? (fallbackName.isEmpty ? "file" : fallbackName)
+                let resolvedName = (request.suggestedFilename?.isEmpty == false ? request.suggestedFilename : nil)
+                    ?? (fallbackName.isEmpty ? nil : fallbackName)
+                let toastTitle = resolvedName.map { L("Downloading \($0)") } ?? L("Downloading file")
                 presentToast(
                     BrowserToastBanner(
                         icon: "arrow.down.circle.fill",
-                        title: "Downloading \(name)",
+                        title: toastTitle,
                         tint: liveTokens.accent,
-                        actionTitle: "View",
+                        actionTitle: L("View"),
                         action: .jumpToTransfer(job.id)
                     )
                 )
@@ -1736,9 +1737,9 @@ struct CleanroomBrowserWorkspaceView: View {
                 presentToast(
                     BrowserToastBanner(
                         icon: "checkmark.circle.fill",
-                        title: "Saved \(fileURL.lastPathComponent)",
+                        title: L("Saved \(fileURL.lastPathComponent)"),
                         tint: liveTokens.statusSuccess,
-                        actionTitle: "View",
+                        actionTitle: L("View"),
                         action: .openDownloads
                     )
                 )
@@ -1787,35 +1788,35 @@ struct CleanroomBrowserWorkspaceView: View {
 
     private var keyboardShortcutsLayer: some View {
         Group {
-            Button("Focus Address Bar") {
+            Button(L("Focus Address Bar")) {
                 isAddressEditing = true
                 omniboxFocusTrigger &+= 1
             }
             .keyboardShortcut("l", modifiers: .command)
 
-            Button("New Tab") {
+            Button(L("New Tab")) {
                 browserStore.openNewTab(isPrivate: session.isPrivate, activate: true)
             }
             .keyboardShortcut("t", modifiers: .command)
 
-            Button("Close Tab") {
+            Button(L("Close Tab")) {
                 browserStore.closeTab(id: session.id)
             }
             .keyboardShortcut("w", modifiers: .command)
 
-            Button("Reopen Closed Tab") {
+            Button(L("Reopen Closed Tab")) {
                 _ = browserStore.reopenLastClosedTab()
             }
             .keyboardShortcut("t", modifiers: [.command, .shift])
 
-            Button("Reload") {
+            Button(L("Reload")) {
                 if !isStartPageVisible {
                     session.reloadCurrentContent()
                 }
             }
             .keyboardShortcut("r", modifiers: .command)
 
-            Button("Find on Page") {
+            Button(L("Find on Page")) {
                 if let activePDF = session.activePDF {
                     withAnimation(.snappy(duration: 0.2)) {
                         activePDF.isSearchVisible = true
@@ -1826,21 +1827,21 @@ struct CleanroomBrowserWorkspaceView: View {
             }
             .keyboardShortcut("f", modifiers: .command)
 
-            Button("Back") {
+            Button(L("Back")) {
                 if session.canGoBack {
                     session.navigateBack()
                 }
             }
             .keyboardShortcut("[", modifiers: .command)
 
-            Button("Forward") {
+            Button(L("Forward")) {
                 if session.canGoForward {
                     session.navigateForward()
                 }
             }
             .keyboardShortcut("]", modifiers: .command)
 
-            Button("Zoom In") {
+            Button(L("Zoom In")) {
                 if let activePDF = session.activePDF {
                     activePDF.dispatch(.zoomIn)
                 } else if let host = session.currentBypassableHost, !isStartPageVisible {
@@ -1849,7 +1850,7 @@ struct CleanroomBrowserWorkspaceView: View {
             }
             .keyboardShortcut("=", modifiers: .command)
 
-            Button("Zoom In Shift") {
+            Button(L("Zoom In")) {
                 if let activePDF = session.activePDF {
                     activePDF.dispatch(.zoomIn)
                 } else if let host = session.currentBypassableHost, !isStartPageVisible {
@@ -1858,7 +1859,7 @@ struct CleanroomBrowserWorkspaceView: View {
             }
             .keyboardShortcut("+", modifiers: .command)
 
-            Button("Zoom Out") {
+            Button(L("Zoom Out")) {
                 if let activePDF = session.activePDF {
                     activePDF.dispatch(.zoomOut)
                 } else if let host = session.currentBypassableHost, !isStartPageVisible {
@@ -1867,7 +1868,7 @@ struct CleanroomBrowserWorkspaceView: View {
             }
             .keyboardShortcut("-", modifiers: .command)
 
-            Button("Reset Zoom") {
+            Button(L("Reset Zoom")) {
                 if let activePDF = session.activePDF {
                     activePDF.dispatch(.resetZoom)
                 } else if let host = session.currentBypassableHost, !isStartPageVisible {
@@ -2005,25 +2006,25 @@ struct CleanroomBrowserWorkspaceView: View {
 
     private var omniboxShieldAccessibilityLabel: String {
         if isShieldPausedOnCurrentSite, let host = session.currentBypassableHost {
-            return "Content Shield Paused on \(host)"
+            return L("Content Shield Paused on \(host)")
         }
         guard session.isShieldEnabled else {
-            return "Content Shield Off"
+            return L("Content Shield Off")
         }
         if let host = session.currentBypassableHost {
-            return "Content Shield Active on \(host) (\(shieldBadgeTitle))"
+            return L("Content Shield Active on \(host) (\(shieldBadgeTitle))")
         }
-        return "Content Shield (\(shieldBadgeTitle))"
+        return L("Content Shield (\(shieldBadgeTitle))")
     }
 
     private var shieldBadgeTitle: String {
-        guard session.isShieldEnabled else { return "Off" }
-        if isShieldPausedOnCurrentSite { return "Paused" }
+        guard session.isShieldEnabled else { return L("Off") }
+        if isShieldPausedOnCurrentSite { return L("Paused") }
         let n = contentBlocker.activeRuleCount
         if n >= 1_000 {
-            return "\(n / 1_000)k"
+            return L("\(n / 1_000)k")
         }
-        return contentBlocker.isSyncing ? "Sync" : "On"
+        return contentBlocker.isSyncing ? L("Sync") : L("On")
     }
 }
 
@@ -2417,7 +2418,7 @@ private struct BrowserFloatingTopChromeOverlay<
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Expand address bar, \(compactDomainTitle)")
+                        .accessibilityLabel(L("Expand address bar, \(compactDomainTitle)"))
                         .accessibilityIdentifier("browser-minimized-pill")
                     }
                 }

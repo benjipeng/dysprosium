@@ -119,7 +119,7 @@ public final class CustomSaveFolderManager {
             }
             return scheme
         }
-        return LiveContainerEnvironment.isRunningInLiveContainer ? "LiveContainer" : "This Device"
+        return LiveContainerEnvironment.isRunningInLiveContainer ? "LiveContainer" : L("This Device")
     }
 
     /// Detects LiveContainer's legacy *Fix File Picker* toggle (`guestAppInfo["doSymlinkInbox"] == true`),
@@ -270,8 +270,8 @@ public final class CustomSaveFolderManager {
 
         if Self.isRejectedInboxOrTemporaryURL(pickedURL) {
             let msg = Self.isLegacySymlinkInboxEnabled()
-                ? "Turn off \"Fix File Picker\" in LiveContainer app settings so iOS can grant real folder access."
-                : "Please pick a permanent folder in On My iPhone or iCloud Drive (temporary Inbox folders cannot persist)."
+                ? L("Turn off \"Fix File Picker\" in LiveContainer app settings so iOS can grant real folder access.")
+                : L("Please pick a permanent folder in On My iPhone or iCloud Drive (temporary Inbox folders cannot persist).")
             lastErrorMessage = msg
             return .rejected(message: msg)
         }
@@ -280,8 +280,8 @@ public final class CustomSaveFolderManager {
         guard Self.verifyRealDirectoryReadWrite(at: pickedURL) else {
             if granted { pickedURL.stopAccessingSecurityScopedResource() }
             let msg = Self.isLegacySymlinkInboxEnabled()
-                ? "Folder is not writable. Disable \"Fix File Picker\" in LiveContainer app settings and try again."
-                : "Dysprosium could not obtain write access to that folder. Please choose a writable folder in On My iPhone or iCloud Drive."
+                ? L("Folder is not writable. Disable \"Fix File Picker\" in LiveContainer app settings and try again.")
+                : L("Dysprosium could not obtain write access to that folder. Please choose a writable folder in On My iPhone or iCloud Drive.")
             lastErrorMessage = msg
             return .rejected(message: msg)
         }
@@ -305,7 +305,7 @@ public final class CustomSaveFolderManager {
 
         guard let bookmarkData = Self.createPersistentBookmark(for: pickedURL) else {
             if granted { pickedURL.stopAccessingSecurityScopedResource() }
-            let msg = "iOS could not create a persistent bookmark for \"\(folderName)\"."
+            let msg = L("iOS could not create a persistent bookmark for \"\(folderName)\".")
             lastErrorMessage = msg
             return .rejected(message: msg)
         }
@@ -494,24 +494,44 @@ public final class CustomSaveFolderManager {
     public nonisolated static func cleanFolderName(for url: URL) -> String {
         let raw = url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
         if raw == "File Provider Storage" {
-            return "On My iPhone"
+            return L("On My iPhone")
         }
         if raw == "com~apple~CloudDocs" {
-            return "iCloud Drive"
+            return L("iCloud Drive")
         }
-        return raw.isEmpty ? "Custom Folder" : raw
+        return raw.isEmpty ? L("Custom Folder") : raw
     }
 
     public nonisolated static func displayBreadcrumb(for url: URL) -> String {
+        let raw = url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = cleanFolderName(for: url)
-        let path = url.standardizedFileURL.path
-        if name == "On My iPhone" || name == "iCloud Drive" {
+        if raw == "File Provider Storage" || raw == "com~apple~CloudDocs" {
             return name
         }
+        let path = url.standardizedFileURL.path
         if FileManager.default.isUbiquitousItem(at: url) || path.contains("Mobile Documents") || path.contains("com~apple~CloudDocs") {
-            return "iCloud Drive › \(name)"
+            return L("iCloud Drive › \(name)")
         }
-        return "Files › \(name)"
+        return L("Files › \(name)")
+    }
+
+    public nonisolated static func localizedBreadcrumb(
+        url: URL,
+        folderName: String,
+        storedBreadcrumb: String
+    ) -> String {
+        let raw = url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw == "File Provider Storage" {
+            return L("On My iPhone")
+        }
+        if raw == "com~apple~CloudDocs" {
+            return L("iCloud Drive")
+        }
+        let path = url.standardizedFileURL.path
+        if storedBreadcrumb.hasPrefix("iCloud Drive › ") || path.contains("Mobile Documents") || path.contains("com~apple~CloudDocs") {
+            return L("iCloud Drive › \(folderName)")
+        }
+        return L("Files › \(folderName)")
     }
 
     private nonisolated static func countVisibleRegularFiles(in dir: URL) -> Int {
@@ -827,12 +847,12 @@ struct SaveLocationRow: View {
                     Button {
                         flow.isShowingPicker = true
                     } label: {
-                        Label("Change Save Folder…", systemImage: "folder.badge.gearshape")
+                        Label(L("Change Save Folder…"), systemImage: "folder.badge.gearshape")
                     }
                     Button {
                         SaveFolderFilesLauncher.openActiveDownloadsFolder()
                     } label: {
-                        Label("Show in iOS Files", systemImage: "folder")
+                        Label(L("Show in iOS Files"), systemImage: "folder")
                     }
                     Divider()
                     Button(role: .destructive) {
@@ -841,26 +861,26 @@ struct SaveLocationRow: View {
                             flow.pendingMove = SaveFolderFlowState.PendingMove(
                                 sourceDir: src,
                                 fileCount: offer.movableFileCount,
-                                destinationName: "App Storage",
+                                destinationName: L("App Storage"),
                                 isResetToDefault: true
                             )
                         }
                         onFolderUpdated?()
                     } label: {
-                        Label("Reset to Default Storage", systemImage: "arrow.uturn.backward")
+                        Label(L("Reset to Default Storage"), systemImage: "arrow.uturn.backward")
                     }
                 case .needsHostGrant(let folderName, _, _):
                     Button {
                         flow.isShowingPicker = true
                     } label: {
-                        Label("Grant Access to \"\(folderName)\"…", systemImage: "folder.badge.person.crop")
+                        Label(L("Grant Access to \"\(folderName)\"…"), systemImage: "folder.badge.person.crop")
                     }
                     Divider()
                     Button(role: .destructive) {
                         _ = saveFolderManager.resetToDefaultFolder()
                         onFolderUpdated?()
                     } label: {
-                        Label("Reset to Default Storage", systemImage: "arrow.uturn.backward")
+                        Label(L("Reset to Default Storage"), systemImage: "arrow.uturn.backward")
                     }
                 }
             } label: {
@@ -875,19 +895,19 @@ struct SaveLocationRow: View {
     @ViewBuilder
     private func rowContent(chevron: String) -> some View {
         HStack(spacing: 10) {
-            Text("Save Location")
+            Text(L("Save Location"))
                 .foregroundStyle(Color.primary)
             Spacer(minLength: 8)
             Group {
                 switch saveFolderManager.status {
                 case .defaultInternal:
-                    Text("App Storage")
+                    Text(L("App Storage"))
                         .foregroundStyle(Color.secondary)
-                case .customActive(_, _, let breadcrumb):
-                    Text(breadcrumb)
+                case .customActive(let url, let folderName, let breadcrumb):
+                    Text(CustomSaveFolderManager.localizedBreadcrumb(url: url, folderName: folderName, storedBreadcrumb: breadcrumb))
                         .foregroundStyle(tokens.accent)
                 case .needsHostGrant(let folderName, _, _):
-                    Label("Link \"\(folderName)\"", systemImage: "exclamationmark.triangle.fill")
+                    Label(L("Link \"\(folderName)\""), systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(tokens.statusWarning)
                 }
             }
@@ -921,9 +941,9 @@ struct SaveFolderPickerFlowModifier: ViewModifier {
     private var moveDialogTitle: String {
         guard let offer = flow.pendingMove else { return "" }
         if offer.isResetToDefault {
-            return "Move \(offer.fileCount) Downloads Back to Default?"
+            return L("Move \(offer.fileCount) Downloads Back to Default?")
         }
-        return "Move \(offer.fileCount) Existing Downloads?"
+        return L("Move \(offer.fileCount) Existing Downloads?")
     }
 
     func body(content: Content) -> some View {
@@ -950,10 +970,9 @@ struct SaveFolderPickerFlowModifier: ViewModifier {
                 titleVisibility: .visible
             ) {
                 if let offer = flow.pendingMove {
-                    let fileWord = offer.fileCount == 1 ? "File" : "Files"
                     let moveLabel = offer.isResetToDefault
-                        ? "Move \(offer.fileCount) \(fileWord)"
-                        : "Move \(offer.fileCount) \(fileWord) to \(offer.destinationName)"
+                        ? L("Move \(offer.fileCount) Files")
+                        : L("Move \(offer.fileCount) Files to \(offer.destinationName)")
                     Button(moveLabel) {
                         let source = offer.sourceDir
                         flow.pendingMove = nil
@@ -962,21 +981,21 @@ struct SaveFolderPickerFlowModifier: ViewModifier {
                             onFolderUpdated?()
                         }
                     }
-                    Button("Leave in Previous Folder", role: .cancel) {
+                    Button(L("Leave in Previous Folder"), role: .cancel) {
                         dismissMoveOffer()
                     }
                 }
             } message: {
                 if let offer = flow.pendingMove {
                     if offer.isResetToDefault {
-                        Text("Files left in the previous folder remain safe in iOS Files.")
+                        Text(L("Files left in the previous folder remain safe in iOS Files."))
                     } else {
-                        Text("Move existing files once so everything lives in \(offer.destinationName). Left-behind files remain untouched in their previous location.")
+                        Text(L("Move existing files once so everything lives in \(offer.destinationName). Left-behind files remain untouched in their previous location."))
                     }
                 }
             }
             .confirmationDialog(
-                "Different Folder Selected",
+                L("Different Folder Selected"),
                 isPresented: Binding(
                     get: { pendingMismatch != nil },
                     set: { if !$0 { pendingMismatch = nil } }
@@ -984,32 +1003,32 @@ struct SaveFolderPickerFlowModifier: ViewModifier {
                 titleVisibility: .visible
             ) {
                 if let mismatch = pendingMismatch {
-                    Button("Switch All Instances to \"\(mismatch.pickedName)\"") {
+                    Button(L("Switch All Instances to \"\(mismatch.pickedName)\"")) {
                         let url = mismatch.pickedURL
                         pendingMismatch = nil
                         handlePick(url, forceSwitchSharedTarget: true)
                     }
-                    Button("Pick \"\(mismatch.expectedName)\" Instead") {
+                    Button(L("Pick \"\(mismatch.expectedName)\" Instead")) {
                         pendingMismatch = nil
                         flow.isShowingPicker = true
                     }
-                    Button("Cancel", role: .cancel) {
+                    Button(L("Cancel"), role: .cancel) {
                         pendingMismatch = nil
                     }
                 }
             } message: {
                 if let mismatch = pendingMismatch {
-                    Text("Another LiveContainer instance uses \"\(mismatch.expectedName)\". Pick the same folder to share one library, or switch all instances to \"\(mismatch.pickedName)\".")
+                    Text(L("Another LiveContainer instance uses \"\(mismatch.expectedName)\". Pick the same folder to share one library, or switch all instances to \"\(mismatch.pickedName)\"."))
                 }
             }
             .alert(
-                "Could Not Link Folder",
+                L("Could Not Link Folder"),
                 isPresented: Binding(
                     get: { rejectedErrorMessage != nil },
                     set: { if !$0 { rejectedErrorMessage = nil } }
                 )
             ) {
-                Button("OK", role: .cancel) {
+                Button(L("OK"), role: .cancel) {
                     rejectedErrorMessage = nil
                 }
             } message: {

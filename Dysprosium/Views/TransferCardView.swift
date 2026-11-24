@@ -26,7 +26,7 @@ struct TransferCardView: View {
             HStack(spacing: 6) {
                 Text(job.siteDomain)
                 Text("·")
-                Text(job.kind.rawValue)
+                Text(job.kind.localizedTitle)
                     .foregroundStyle(tokens.accent)
             }
             .font(.caption2.weight(.medium))
@@ -56,7 +56,7 @@ struct TransferCardView: View {
                 } else if !job.slices.isEmpty {
                     Text("·")
                         .foregroundStyle(.tertiary)
-                    Text("\(job.slices.count) slices")
+                    Text(L("\(job.slices.count) slices"))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .fixedSize()
@@ -78,7 +78,7 @@ struct TransferCardView: View {
                 if job.lifecycle != .completed {
                     Button(action: onTogglePauseResume) {
                         Label(
-                            job.lifecycle.isActive || job.lifecycle == .queued ? "Pause" : "Resume",
+                            job.lifecycle.isActive || job.lifecycle == .queued ? L("Pause") : L("Resume"),
                             systemImage: job.lifecycle.isActive || job.lifecycle == .queued ? "pause.fill" : "play.fill"
                         )
                         .labelStyle(.iconOnly)
@@ -99,19 +99,19 @@ struct TransferCardView: View {
     private var statusBadge: some View {
         let (label, fg, bg): (String, Color, Color) = switch job.lifecycle {
         case .queued:
-            ("Queued", .secondary, Color.secondary.opacity(0.14))
+            (L("Queued"), .secondary, Color.secondary.opacity(0.14))
         case .resolving:
-            ("Resolving", tokens.accent, tokens.accentSubtleFill)
+            (L("Resolving"), tokens.accent, tokens.accentSubtleFill)
         case .downloading:
             ("\(Int((job.progressFraction * 100).rounded()))%", tokens.accent, tokens.accentSubtleFill)
         case .muxing:
-            ("Muxing", tokens.statusSuccess, tokens.statusSuccessFill)
+            (L("Muxing"), tokens.statusSuccess, tokens.statusSuccessFill)
         case .paused:
-            ("Paused", tokens.statusWarning, tokens.statusWarningFill)
+            (L("Paused"), tokens.statusWarning, tokens.statusWarningFill)
         case .completed:
-            ("Saved", tokens.statusSuccess, tokens.statusSuccessFill)
+            (L("Saved"), tokens.statusSuccess, tokens.statusSuccessFill)
         case .failed:
-            ("Error", tokens.statusDanger, tokens.statusDangerFill)
+            (L("Error"), tokens.statusDanger, tokens.statusDangerFill)
         }
 
         Text(label)
@@ -124,7 +124,7 @@ struct TransferCardView: View {
 
     private var progressCaption: String {
         if let totalSegs = job.totalSegments, totalSegs > 0 {
-            return "\(job.completedSegments)/\(totalSegs) segs · \(DysprosiumFormatters.bytes(job.downloadedBytes))"
+            return L("\(job.completedSegments)/\(totalSegs) segs · \(DysprosiumFormatters.bytes(job.downloadedBytes))")
         }
         if let total = job.totalBytes, total > 0 {
             return "\(DysprosiumFormatters.bytes(job.downloadedBytes)) / \(DysprosiumFormatters.bytes(total))"

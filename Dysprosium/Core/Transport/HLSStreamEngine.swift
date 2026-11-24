@@ -95,7 +95,7 @@ public struct HLSStreamEngine: Sendable {
             throw NSError(
                 domain: "Dysprosium.HLS",
                 code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "HLS playlist contained zero playable media segments"]
+                userInfo: [NSLocalizedDescriptionKey: L("HLS playlist contained zero playable media segments")]
             )
         }
 
@@ -648,7 +648,7 @@ public struct HLSStreamEngine: Sendable {
                     lastError = NSError(
                         domain: "Dysprosium.HLS",
                         code: http.statusCode,
-                        userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode) while fetching \(url.lastPathComponent)"]
+                        userInfo: [NSLocalizedDescriptionKey: L("HTTP \(http.statusCode) while fetching \(url.lastPathComponent)")]
                     )
                     continue
                 }

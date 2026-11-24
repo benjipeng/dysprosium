@@ -68,7 +68,7 @@ public struct MediaResolver: Sendable {
                     code: -403,
                     userInfo: [
                         NSLocalizedDescriptionKey:
-                            "Stream rejected by \(host) (returned \(total)-byte HTML error — token expired or IP mismatch). Refresh the page and recapture the stream."
+                            L("Stream rejected by \(host) (returned \(total)-byte HTML error — token expired or IP mismatch). Refresh the page and recapture the stream.")
                     ]
                 )
             }
@@ -147,7 +147,7 @@ public struct MediaResolver: Sendable {
             code: -404,
             userInfo: [
                 NSLocalizedDescriptionKey:
-                    "Interactive challenge or click-to-play required on \(host). Open the page in the Browser tab to capture the stream."
+                    L("Interactive challenge or click-to-play required on \(host). Open the page in the Browser tab to capture the stream.")
             ]
         )
     }
@@ -306,7 +306,7 @@ public struct MediaResolver: Sendable {
             domain: "Dysprosium.ControlPlane",
             code: -415,
             userInfo: [
-                NSLocalizedDescriptionKey: "MPEG-DASH (.mpd) downloads are not yet supported on \(host)."
+                NSLocalizedDescriptionKey: L("MPEG-DASH (.mpd) downloads are not yet supported on \(host).")
             ]
         )
     }

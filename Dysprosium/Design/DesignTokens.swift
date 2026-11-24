@@ -17,11 +17,11 @@ public enum DysprosiumPalettePreset: String, CaseIterable, Identifiable, Codable
 
     public var displayName: String {
         switch self {
-        case .cerulean: return "Dysprosium Cerulean"
-        case .ultramarine: return "Cobalt Ultramarine"
-        case .terbium: return "Terbium Emerald"
-        case .europium: return "Europium Vermilion"
-        case .obsidian: return "Titanium Obsidian"
+        case .cerulean: return L("Dysprosium Cerulean")
+        case .ultramarine: return L("Cobalt Ultramarine")
+        case .terbium: return L("Terbium Emerald")
+        case .europium: return L("Europium Vermilion")
+        case .obsidian: return L("Titanium Obsidian")
         }
     }
 
@@ -37,11 +37,11 @@ public enum DysprosiumPalettePreset: String, CaseIterable, Identifiable, Codable
 
     public var subtitle: String {
         switch self {
-        case .cerulean: return "Deep optical cerulean & spectral cyan"
-        case .ultramarine: return "Swiss typographic cobalt & indigo"
-        case .terbium: return "Phosphor mineral jade & mint"
-        case .europium: return "Industrial signal vermilion & amber"
-        case .obsidian: return "Anodized monochrome editorial ink"
+        case .cerulean: return L("Deep optical cerulean & spectral cyan")
+        case .ultramarine: return L("Swiss typographic cobalt & indigo")
+        case .terbium: return L("Phosphor mineral jade & mint")
+        case .europium: return L("Industrial signal vermilion & amber")
+        case .obsidian: return L("Anodized monochrome editorial ink")
         }
     }
 }
@@ -353,32 +353,32 @@ public final class DysprosiumThemeStore {
 public struct DysprosiumPaletteSelectorRows: View {
     @Bindable var themeStore: DysprosiumThemeStore
     let explicitSelection: DysprosiumPalettePreset?
-    let title: String
+    let explicitTitle: String?
     let profileContextName: String?
     let onSelect: ((DysprosiumPalettePreset) -> Void)?
 
     public init(
         themeStore: DysprosiumThemeStore = .shared,
-        title: String = "Accent",
+        title: String? = nil,
         profileContextName: String? = nil,
         onSelect: ((DysprosiumPalettePreset) -> Void)? = nil
     ) {
         self.themeStore = themeStore
         self.explicitSelection = nil
-        self.title = title
+        self.explicitTitle = title
         self.profileContextName = profileContextName
         self.onSelect = onSelect
     }
 
     public init(
         selectedPreset: DysprosiumPalettePreset,
-        title: String = "Accent",
+        title: String? = nil,
         profileContextName: String? = nil,
         onSelect: @escaping (DysprosiumPalettePreset) -> Void
     ) {
         self.themeStore = .shared
         self.explicitSelection = selectedPreset
-        self.title = title
+        self.explicitTitle = title
         self.profileContextName = profileContextName
         self.onSelect = onSelect
     }
@@ -390,7 +390,7 @@ public struct DysprosiumPaletteSelectorRows: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
+                    Text(explicitTitle ?? L("Accent"))
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
@@ -467,7 +467,7 @@ public struct DysprosiumPaletteSelectorRows: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(preset.displayName)
-                    .accessibilityValue(isSelected ? "Selected" : "")
+                    .accessibilityValue(isSelected ? L("Selected") : "")
                     .accessibilityAddTraits(isSelected ? .isSelected : [])
                     .accessibilityIdentifier("palette-row-\(preset.rawValue)")
                 }
@@ -497,13 +497,13 @@ public struct WebDarkThemeSwatchRow: View {
 
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("Web Theme")
+                Text(L("Web Theme"))
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
 
                 Spacer(minLength: 8)
 
-                Text(isOff ? "Native Colors" : "\(selectedPreset.title) · \(selectedPreset.backgroundHex.uppercased())")
+                Text(isOff ? L("Native Colors") : "\(selectedPreset.title) · \(selectedPreset.backgroundHex.uppercased())")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -561,8 +561,8 @@ public struct WebDarkThemeSwatchRow: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Web Theme \(preset.title)")
-                    .accessibilityValue(isSelected ? "Selected" : "")
+                    .accessibilityLabel(L("Web Theme \(preset.title)"))
+                    .accessibilityValue(isSelected ? L("Selected") : "")
                     .accessibilityIdentifier("web-dark-preset-\(preset.rawValue)")
                 }
             }

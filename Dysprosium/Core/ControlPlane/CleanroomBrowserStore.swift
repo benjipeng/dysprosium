@@ -18,8 +18,8 @@ public enum BrowserUserAgentProfile: String, CaseIterable, Codable, Identifiable
 
     public var title: String {
         switch self {
-        case .iosSafari: return "iOS Safari (Mobile)"
-        case .macosSafari: return "macOS Safari (Desktop)"
+        case .iosSafari: return L("iOS Safari (Mobile)")
+        case .macosSafari: return L("macOS Safari (Desktop)")
         }
     }
 
@@ -83,9 +83,9 @@ public enum BrowserSearchEngine: String, CaseIterable, Codable, Identifiable, Se
         case .duckDuckGo: return "DuckDuckGo"
         case .google: return "Google"
         case .kagi: return "Kagi"
-        case .brave: return "Brave Search"
+        case .brave: return L("Brave Search")
         case .startpage: return "Startpage"
-        case .custom: return "Custom"
+        case .custom: return L("Custom")
         }
     }
 
@@ -1305,7 +1305,7 @@ public final class CleanroomBrowserStore {
         guard let idx = profiles.firstIndex(where: { $0.id == updated.id }) else { return }
         let previous = profiles[idx]
         var mutableSanitized = updated
-        mutableSanitized.name = BrowserProfile.sanitizedName(updated.name, fallback: updated.isDefault ? "Personal" : "Profile")
+        mutableSanitized.name = BrowserProfile.sanitizedName(updated.name, fallback: updated.isDefault ? BrowserProfile.defaultName : "Profile")
         let sanitized = mutableSanitized
         profiles[idx] = sanitized
 

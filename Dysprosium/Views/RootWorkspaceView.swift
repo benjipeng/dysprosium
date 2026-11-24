@@ -29,7 +29,7 @@ public struct RootWorkspaceView: View {
 
     public var body: some View {
         TabView(selection: $activeTab) {
-            Tab("Browser", systemImage: "safari", value: .browser) {
+            Tab(L("Browser"), systemImage: "safari", value: .browser) {
                 NavigationStack {
                     CleanroomBrowserWorkspaceView(
                         browserStore: browserStore,
@@ -54,7 +54,7 @@ public struct RootWorkspaceView: View {
                 }
             }
 
-            Tab("Downloads", systemImage: "arrow.down.circle", value: .downloads) {
+            Tab(L("Downloads"), systemImage: "arrow.down.circle", value: .downloads) {
                 NavigationStack {
                     LibraryVaultView(
                         scheduler: scheduler,
@@ -69,16 +69,16 @@ public struct RootWorkspaceView: View {
                             activeTab = .browser
                         }
                     )
-                    .navigationTitle("Downloads")
+                    .navigationTitle(L("Downloads"))
                     .toolbarTitleDisplayMode(.inlineLarge)
                 }
             }
             .badge(scheduler.activeTransferCount)
 
-            Tab("Engine", systemImage: "cpu", value: .engine) {
+            Tab(L("Engine"), systemImage: "cpu", value: .engine) {
                 NavigationStack {
                     EngineStatusView(scheduler: scheduler, browserStore: browserStore)
-                        .navigationTitle("Engine & Host")
+                        .navigationTitle(L("Engine & Host"))
                         .toolbarTitleDisplayMode(.inlineLarge)
                 }
             }

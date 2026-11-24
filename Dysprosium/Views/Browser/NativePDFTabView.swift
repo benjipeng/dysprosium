@@ -127,7 +127,7 @@ struct NativePDFChromeOverlay: View {
                 }
 
                 VStack(spacing: 4) {
-                    Text("Password Protected PDF")
+                    Text(L("Password Protected PDF"))
                         .font(.headline)
                         .foregroundStyle(.primary)
 
@@ -138,20 +138,20 @@ struct NativePDFChromeOverlay: View {
                         .multilineTextAlignment(.center)
                 }
 
-                SecureField("Document Password", text: $unlockPassword)
+                SecureField(L("Document Password"), text: $unlockPassword)
                     .textFieldStyle(.roundedBorder)
                     .submitLabel(.go)
                     .onSubmit(attemptUnlock)
                     .accessibilityIdentifier("pdf-unlock-password-field")
 
                 if unlockFailed {
-                    Text("Incorrect password. Please try again.")
+                    Text(L("Incorrect password. Please try again."))
                         .font(.caption)
                         .foregroundStyle(tokens.statusDanger)
                 }
 
                 Button(action: attemptUnlock) {
-                    Text("Unlock Document")
+                    Text(L("Unlock Document"))
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                 }
@@ -190,7 +190,7 @@ struct NativePDFChromeOverlay: View {
                 .foregroundStyle(tokens.glassIconSecondary)
 
             TextField(
-                "Find in PDF…",
+                L("Find in PDF…"),
                 text: Binding(
                     get: { pdfDoc.searchQuery },
                     set: { pdfDoc.updateSearchQuery($0) }
@@ -232,7 +232,7 @@ struct NativePDFChromeOverlay: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(pdfDoc.searchResults.isEmpty)
-                .accessibilityLabel("Previous Match")
+                .accessibilityLabel(L("Previous Match"))
 
                 Button {
                     pdfDoc.stepSearchResult(delta: 1)
@@ -245,7 +245,7 @@ struct NativePDFChromeOverlay: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(pdfDoc.searchResults.isEmpty)
-                .accessibilityLabel("Next Match")
+                .accessibilityLabel(L("Next Match"))
             }
 
             Button {
@@ -262,7 +262,7 @@ struct NativePDFChromeOverlay: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Close PDF Search")
+            .accessibilityLabel(L("Close PDF Search"))
             .accessibilityIdentifier("pdf-search-close-button")
         }
         .padding(.horizontal, 12)
@@ -338,7 +338,7 @@ private struct PDFReaderFloatingPillOverlay: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Pages and Contents, page \(pdfDoc.currentPageIndex + 1) of \(pdfDoc.pageCount)")
+                .accessibilityLabel(L("Pages and Contents, page \(pdfDoc.currentPageIndex + 1) of \(pdfDoc.pageCount)"))
                 .accessibilityIdentifier("pdf-navigator-button")
 
                 pillDivider
@@ -353,12 +353,12 @@ private struct PDFReaderFloatingPillOverlay: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Find in PDF")
+                .accessibilityLabel(L("Find in PDF"))
                 .accessibilityIdentifier("pdf-find-button")
 
                 // 3. Appearance Mode (Original / Paper / Dark)
                 Menu {
-                    Picker("Reading Appearance", selection: $appearanceMode) {
+                    Picker(L("Reading Appearance"), selection: $appearanceMode) {
                         ForEach(PDFAppearanceMode.allCases) { mode in
                             Label(mode.title, systemImage: mode.systemImage).tag(mode)
                         }
@@ -372,13 +372,13 @@ private struct PDFReaderFloatingPillOverlay: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("PDF Appearance, \(appearanceMode.title)")
+                .accessibilityLabel(L("PDF Appearance, \(appearanceMode.title)"))
                 .accessibilityIdentifier("pdf-appearance-button")
 
                 // 4. Layout Mode on wide / iPhone Duo inner screens (Auto Duo / Single / Two-Up)
                 if showLayoutToggle {
                     Menu {
-                        Picker("Page Layout", selection: $displayLayoutMode) {
+                        Picker(L("Page Layout"), selection: $displayLayoutMode) {
                             ForEach(PDFDisplayLayoutMode.allCases) { mode in
                                 Label(mode.title, systemImage: mode.systemImage).tag(mode)
                             }
@@ -392,7 +392,7 @@ private struct PDFReaderFloatingPillOverlay: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("PDF Page Layout, \(displayLayoutMode.title)")
+                    .accessibilityLabel(L("PDF Page Layout, \(displayLayoutMode.title)"))
                     .accessibilityIdentifier("pdf-layout-button")
                 }
 
@@ -402,16 +402,16 @@ private struct PDFReaderFloatingPillOverlay: View {
                 Menu {
                     if pdfDoc.isSavedInVault {
                         Button(action: onSaveOrReveal) {
-                            Label("View in Downloads", systemImage: "folder")
+                            Label(L("View in Downloads"), systemImage: "folder")
                         }
                     } else {
                         Button(action: onSaveOrReveal) {
-                            Label("Save to Downloads (\(pdfDoc.formattedFileSize))", systemImage: "arrow.down.to.line")
+                            Label(L("Save to Downloads (\(pdfDoc.formattedFileSize))"), systemImage: "arrow.down.to.line")
                         }
                     }
 
                     Button(action: onShareOriginalPDF) {
-                        Label("Share / Save to Files…", systemImage: "square.and.arrow.up")
+                        Label(L("Share / Save to Files…"), systemImage: "square.and.arrow.up")
                     }
                 } label: {
                     Image(systemName: pdfDoc.isSavedInVault ? "checkmark.circle.fill" : "arrow.down.to.line")
@@ -424,7 +424,7 @@ private struct PDFReaderFloatingPillOverlay: View {
                     onSaveOrReveal()
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(pdfDoc.isSavedInVault ? "Saved in Downloads" : "Save PDF to Downloads")
+                .accessibilityLabel(pdfDoc.isSavedInVault ? L("Saved in Downloads") : L("Save PDF to Downloads"))
                 .accessibilityIdentifier("pdf-save-button")
             }
             .padding(.horizontal, 4)
@@ -936,16 +936,16 @@ private struct PDFNavigatorSheet: View {
             .toolbar {
                 if !pdfDoc.outlineNodes.isEmpty {
                     ToolbarItem(placement: .principal) {
-                        Picker("Navigator Section", selection: $selectedTab) {
-                            Text("Pages").tag(NavigatorTab.pages)
-                            Text("Contents").tag(NavigatorTab.outline)
+                        Picker(L("Navigator Section"), selection: $selectedTab) {
+                            Text(L("Pages")).tag(NavigatorTab.pages)
+                            Text(L("Contents")).tag(NavigatorTab.outline)
                         }
                         .pickerStyle(.segmented)
                         .frame(maxWidth: 210)
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
+                    Button(L("Done")) {
                         dismiss()
                     }
                 }
@@ -988,9 +988,9 @@ private struct PDFNavigatorSheet: View {
     private var outlineListView: some View {
         if pdfDoc.outlineNodes.isEmpty {
             ContentUnavailableView(
-                "No Table of Contents",
+                L("No Table of Contents"),
                 systemImage: "list.bullet.indent",
-                description: Text("This PDF document does not include an embedded outline.")
+                description: Text(L("This PDF document does not include an embedded outline."))
             )
         } else {
             List {

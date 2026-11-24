@@ -33,9 +33,9 @@ public enum PDFAppearanceMode: String, CaseIterable, Identifiable, Codable, Send
 
     public var title: String {
         switch self {
-        case .original: return "Original"
-        case .paper: return "Paper"
-        case .dark: return "Dark"
+        case .original: return L("Original")
+        case .paper: return L("Paper")
+        case .dark: return L("Dark")
         }
     }
 
@@ -81,17 +81,17 @@ public enum PDFDisplayLayoutMode: String, CaseIterable, Identifiable, Codable, S
 
     public var title: String {
         switch self {
-        case .auto: return "Auto (Duo)"
-        case .singlePage: return "Single Page"
-        case .twoUp: return "Two-Page Spread"
+        case .auto: return L("Auto (Duo)")
+        case .singlePage: return L("Single Page")
+        case .twoUp: return L("Two-Page Spread")
         }
     }
 
     public var shortTitle: String {
         switch self {
-        case .auto: return "Auto"
-        case .singlePage: return "Single"
-        case .twoUp: return "Two-Up"
+        case .auto: return L("Auto")
+        case .singlePage: return L("Single")
+        case .twoUp: return L("Two-Up")
         }
     }
 
@@ -447,7 +447,7 @@ public final class PDFTabDocument: Identifiable {
     }
 
     public var formattedFileSize: String {
-        ByteCountFormatter.string(fromByteCount: max(0, fileByteCount), countStyle: .file)
+        DysprosiumFormatters.bytes(fileByteCount)
     }
 
     public init(

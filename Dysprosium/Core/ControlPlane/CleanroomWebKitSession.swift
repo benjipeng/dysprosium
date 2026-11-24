@@ -768,7 +768,7 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         if let pdf = activePDF { return pdf.displayTitle }
         if !pageTitle.isEmpty { return pageTitle }
         if let host = URL(string: currentURLString)?.host() { return host }
-        return isPrivate ? "Private Tab" : "New Tab"
+        return isPrivate ? L("Private Tab") : L("New Tab")
     }
 
     /// Clean text displayed in the Omnibox when not editing: shows the document title for local `file://` PDFs
@@ -799,14 +799,14 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
         if let parsed = URL(string: currentURLString) {
             if parsed.isFileURL {
                 let name = (parsed.lastPathComponent as NSString).deletingPathExtension
-                return name.isEmpty ? "Local PDF" : name
+                return name.isEmpty ? L("Local PDF") : name
             }
             if let host = parsed.host() {
                 let normalized = LiveContainerEnvironment.HostNormalizer.normalize(host)
                 return normalized.isEmpty ? host : normalized
             }
         }
-        return isPrivate ? "Ephemeral Session" : "Start Page"
+        return isPrivate ? L("Ephemeral Session") : L("Start Page")
     }
 
     /// True while a live `WKWebView` (and backing `WebContent` process) is currently allocated for this tab.
@@ -1488,7 +1488,7 @@ public final class CleanroomWebKitSession: NSObject, Identifiable {
                     urlString: sourceURL.absoluteString,
                     domain: "DysprosiumPDFErrorDomain",
                     code: -1,
-                    localizedDescription: "Unable to open PDF document (\(resolvedFilename)).",
+                    localizedDescription: L("Unable to open PDF document (\(resolvedFilename))."),
                     isTLSFailure: false
                 )
                 self.syncEffectiveNavigationState()
@@ -3066,7 +3066,7 @@ extension CleanroomWebKitSession: WKNavigationDelegate, WKUIDelegate, WKDownload
                 if let cfError {
                     return (cfError as Error).localizedDescription
                 }
-                return "The certificate for \(space.host) is self-signed or not trusted."
+                return L("The certificate for \(space.host) is self-signed or not trusted.")
             }()
 
             let requestID = UUID()
@@ -3518,27 +3518,27 @@ extension CleanroomWebKitSession: WKNavigationDelegate, WKUIDelegate, WKDownload
 
         let config = UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] suggestedActions in
             let openBG = UIAction(
-                title: "Open in Background Tab",
+                title: L("Open in Background Tab"),
                 image: UIImage(systemName: "plus.square.on.square")
             ) { _ in
                 guard let self else { return }
                 self.onOpenLinkInTab?(linkURL, self.isPrivate, false)
             }
             let openFG = UIAction(
-                title: "Open in New Tab",
+                title: L("Open in New Tab"),
                 image: UIImage(systemName: "arrow.up.right.square")
             ) { _ in
                 guard let self else { return }
                 self.onOpenLinkInTab?(linkURL, self.isPrivate, true)
             }
             let openPriv = UIAction(
-                title: "Open in Private Tab",
+                title: L("Open in Private Tab"),
                 image: UIImage(systemName: "hand.raised")
             ) { _ in
                 self?.onOpenLinkInTab?(linkURL, true, true)
             }
             let downloadAct = UIAction(
-                title: "Download Linked File",
+                title: L("Download Linked File"),
                 image: UIImage(systemName: "arrow.down.circle")
             ) { _ in
                 guard let self else { return }
@@ -3560,13 +3560,13 @@ extension CleanroomWebKitSession: WKNavigationDelegate, WKUIDelegate, WKDownload
                 }
             }
             let copyAct = UIAction(
-                title: "Copy Link",
+                title: L("Copy Link"),
                 image: UIImage(systemName: "doc.on.doc")
             ) { _ in
                 UIPasteboard.general.string = linkURL.absoluteString
             }
             let shareAct = UIAction(
-                title: "Share Link",
+                title: L("Share Link"),
                 image: UIImage(systemName: "square.and.arrow.up")
             ) { _ in
                 self?.onShareURL?(linkURL)

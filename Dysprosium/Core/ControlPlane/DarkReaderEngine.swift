@@ -25,9 +25,9 @@ public final class DarkReaderEngine: @unchecked Sendable {
 
         public var title: String {
             switch self {
-            case .auto: return "Auto"
-            case .on: return "On"
-            case .off: return "Off"
+            case .auto: return L("Auto")
+            case .on: return L("On")
+            case .off: return L("Off")
             }
         }
 
@@ -46,10 +46,10 @@ public final class DarkReaderEngine: @unchecked Sendable {
 
         public var title: String {
             switch self {
-            case .oled: return "OLED"
-            case .obsidian: return "Obsidian"
-            case .graphite: return "Graphite"
-            case .paper: return "Paper"
+            case .oled: return L("OLED")
+            case .obsidian: return L("Obsidian")
+            case .graphite: return L("Graphite")
+            case .paper: return L("Paper")
             }
         }
 

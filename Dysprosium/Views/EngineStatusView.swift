@@ -18,14 +18,15 @@ struct EngineStatusView: View {
     private var contentBlocker = CleanroomContentBlocker.shared
     private var saveFolderManager = CustomSaveFolderManager.shared
     @Bindable private var fingerprintShield = FingerprintShieldEngine.shared
+    @Bindable private var languageStore = AppLanguageStore.shared
 
     var body: some View {
         List {
             Section {
                 DysprosiumPaletteSelectorRows(
-                    title: "Accent",
+                    title: L("Accent"),
                     profileContextName: browserStore.isMultiProfileEnabled
-                        ? browserStore.activeProfile.name
+                        ? browserStore.activeProfile.localizedDisplayName
                         : nil,
                     onSelect: { preset in
                         browserStore.setActiveProfilePalette(preset)
@@ -33,10 +34,10 @@ struct EngineStatusView: View {
                 )
 
                 HStack(spacing: 12) {
-                    Text("Web Dark Mode")
+                    Text(L("Web Dark Mode"))
                         .font(.subheadline.weight(.medium))
                     Spacer(minLength: 8)
-                    Picker("Web Dark Mode", selection: $browserStore.webDarkModeBehavior) {
+                    Picker(L("Web Dark Mode"), selection: $browserStore.webDarkModeBehavior) {
                         ForEach(DarkReaderEngine.WebDarkModeBehavior.allCases) { mode in
                             Text(mode.title).tag(mode)
                         }
@@ -51,10 +52,17 @@ struct EngineStatusView: View {
                     selectedPreset: $browserStore.webDarkThemePreset,
                     modeBehavior: $browserStore.webDarkModeBehavior
                 )
+
+                Picker(L("Language"), selection: $languageStore.selection) {
+                    ForEach(AppLanguage.allCases) { lang in
+                        Text(lang.pickerTitle).tag(lang)
+                    }
+                }
+                .accessibilityIdentifier("engine-language-picker")
             } header: {
-                Text("Appearance")
+                Text(L("Appearance"))
             } footer: {
-                Text("Auto adapts light-only websites when iOS is in Dark Mode; On applies the chosen web theme at all times.")
+                Text(L("Auto adapts light-only websites when iOS is in Dark Mode; On applies the chosen web theme at all times. In-app language changes take effect immediately."))
             }
 
             Section {
@@ -62,14 +70,14 @@ struct EngineStatusView: View {
                     isShowingProfilesSheet = true
                 } label: {
                     HStack(spacing: 10) {
-                        Label("Profiles", systemImage: browserStore.isMultiProfileEnabled ? browserStore.activeProfile.symbolName : "person.2")
+                        Label(L("Profiles"), systemImage: browserStore.isMultiProfileEnabled ? browserStore.activeProfile.symbolName : "person.2")
                             .symbolRenderingMode(.monochrome)
                             .foregroundStyle(Color.primary)
                         Spacer(minLength: 8)
                         Text(
                             browserStore.isMultiProfileEnabled
-                                ? "\(browserStore.activeProfile.name) (\(browserStore.profiles.count))"
-                                : browserStore.activeProfile.name
+                                ? L("\(browserStore.activeProfile.localizedDisplayName) (\(browserStore.profiles.count))")
+                                : browserStore.activeProfile.localizedDisplayName
                         )
                         .font(.subheadline)
                         .foregroundStyle(browserStore.isMultiProfileEnabled ? tokens.accent : Color.secondary)
@@ -86,7 +94,7 @@ struct EngineStatusView: View {
             }
 
             Section {
-                Picker("Search Engine", selection: $browserStore.searchEngine) {
+                Picker(L("Search Engine"), selection: $browserStore.searchEngine) {
                     ForEach(BrowserSearchEngine.allCases) { engine in
                         Text(engine.title).tag(engine)
                     }
@@ -102,29 +110,29 @@ struct EngineStatusView: View {
                             .font(.subheadline.monospaced())
                             .accessibilityIdentifier("engine-custom-search-template-field")
 
-                        Text("Use %s or {searchTerms} for the query placeholder.")
+                        Text(L("Use %s or {searchTerms} for the query placeholder."))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 2)
                 }
 
-                Picker("User-Agent", selection: $browserStore.userAgentProfile) {
+                Picker(L("User-Agent"), selection: $browserStore.userAgentProfile) {
                     ForEach(BrowserUserAgentProfile.allCases) { profile in
                         Text(profile.title).tag(profile)
                     }
                 }
 
-                Toggle("Fingerprint Shield (0-Frame)", isOn: $fingerprintShield.isEnabled)
+                Toggle(L("Fingerprint Shield (0-Frame)"), isOn: $fingerprintShield.isEnabled)
 
                 NavigationLink {
                     FingerprintLabView(browserStore: browserStore)
                 } label: {
                     HStack(spacing: 10) {
-                        Label("Fingerprint Lab", systemImage: "viewfinder.circle")
+                        Label(L("Fingerprint Lab"), systemImage: "viewfinder.circle")
                             .symbolRenderingMode(.monochrome)
                         Spacer()
-                        Text(fingerprintShield.isEnabled ? "Shield On" : "Offline")
+                        Text(fingerprintShield.isEnabled ? L("Shield On") : L("Offline"))
                             .font(.caption.weight(.medium))
                             .foregroundStyle(fingerprintShield.isEnabled ? tokens.accent : .secondary)
                     }
@@ -132,19 +140,19 @@ struct EngineStatusView: View {
             } header: {
                 Text(
                     browserStore.isMultiProfileEnabled
-                        ? "Browser Identity · \(browserStore.activeProfile.name)"
-                        : "Browser Identity & Privacy"
+                        ? L("Browser Identity · \(browserStore.activeProfile.localizedDisplayName)")
+                        : L("Browser Identity & Privacy")
                 )
             } footer: {
-                Text("Configures default search, Safari persona User-Agent, and offline WebKit fingerprint entropy auditing.")
+                Text(L("Configures default search, Safari persona User-Agent, and offline WebKit fingerprint entropy auditing."))
             }
 
-            Section("Concurrency") {
+            Section(L("Concurrency")) {
                 Stepper(
                     value: $scheduler.maxConcurrentTransfers,
                     in: 1...6
                 ) {
-                    LabeledContent("Simultaneous Transfers", value: "\(scheduler.maxConcurrentTransfers)")
+                    LabeledContent(L("Simultaneous Transfers"), value: "\(scheduler.maxConcurrentTransfers)")
                         .font(.body.monospacedDigit())
                 }
 
@@ -152,34 +160,34 @@ struct EngineStatusView: View {
                     value: $scheduler.defaultLanesPerTransfer,
                     in: 1...16
                 ) {
-                    LabeledContent("Default Range Lanes", value: "\(scheduler.defaultLanesPerTransfer)×")
+                    LabeledContent(L("Default Range Lanes"), value: "\(scheduler.defaultLanesPerTransfer)×")
                         .font(.body.monospacedDigit())
                 }
             }
 
-            Section("Content Shield") {
+            Section(L("Content Shield")) {
                 LabeledContent(
-                    "Active Filter Lists",
+                    L("Active Filter Lists"),
                     value: "\(contentBlocker.subscriptions.filter(\.isEnabled).count) / \(contentBlocker.subscriptions.count)"
                 )
                 .font(.subheadline.monospacedDigit())
 
                 LabeledContent(
-                    "Compiled WebKit Rules",
-                    value: contentBlocker.isSyncing ? "Syncing…" : contentBlocker.activeRuleCount.formatted()
+                    L("Compiled WebKit Rules"),
+                    value: contentBlocker.isSyncing ? L("Syncing…") : contentBlocker.activeRuleCount.formatted(.number.locale(AppLocalization.currentLocale))
                 )
                 .font(.subheadline.monospacedDigit())
 
                 Button {
                     isShowingFilterSheet = true
                 } label: {
-                    Label("Manage Filter Subscriptions…", systemImage: "shield.lefthalf.filled.badge.checkmark")
+                    Label(L("Manage Filter Subscriptions…"), systemImage: "shield.lefthalf.filled.badge.checkmark")
                         .symbolRenderingMode(.monochrome)
                 }
             }
             .font(.subheadline)
 
-            Section("Storage") {
+            Section(L("Storage")) {
                 SaveLocationRow(
                     flow: $saveFolderFlow,
                     accessibilityID: "engine-save-location-menu"
@@ -188,32 +196,31 @@ struct EngineStatusView: View {
                 }
 
                 LabeledContent(
-                    "Available Space",
+                    L("Available Space"),
                     value: freeDiskSpaceBytes.map(DysprosiumFormatters.bytes) ?? "—"
                 )
                 .font(.subheadline.monospacedDigit())
 
                 LabeledContent(
-                    "Downloaded Files",
+                    L("Downloaded Files"),
                     value: "\(downloadedFileCount)"
                 )
                 .font(.subheadline.monospacedDigit())
 
                 LabeledContent(
                     browserStore.isMultiProfileEnabled
-                        ? "Browser Cache (\(browserStore.activeProfile.name))"
-                        : "Browser Cache & Storage"
+                        ? L("Browser Cache (\(browserStore.activeProfile.localizedDisplayName))")
+                        : L("Browser Cache & Storage")
                 ) {
                     if let browserFootprint {
                         let byteText = DysprosiumFormatters.bytes(
                             Int64(min(browserFootprint.totalBytes, UInt64(Int64.max)))
                         )
-                        let siteWord = browserFootprint.websiteDomainCount == 1 ? "site" : "sites"
-                        Text("\(byteText) · \(browserFootprint.websiteDomainCount) \(siteWord)")
+                        Text(L("\(byteText) · \(browserFootprint.websiteDomainCount) sites"))
                             .font(.subheadline.monospacedDigit())
                             .foregroundStyle(.primary)
                     } else {
-                        Text("Measuring…")
+                        Text(L("Measuring…"))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -222,26 +229,26 @@ struct EngineStatusView: View {
                 Button {
                     isShowingClearStorageSheet = true
                 } label: {
-                    Label("Website Data & Storage…", systemImage: "internaldrive")
+                    Label(L("Website Data & Storage…"), systemImage: "internaldrive")
                         .symbolRenderingMode(.monochrome)
                 }
                 .accessibilityIdentifier("engine-website-data-storage-button")
             }
             .font(.subheadline)
 
-            Section("Runtime") {
+            Section(L("Runtime")) {
                 LabeledContent(
-                    "Host Container",
-                    value: (probe?.isLiveContainerGuest == true) ? "LiveContainer Guest" : "Standalone"
+                    L("Host Container"),
+                    value: (probe?.isLiveContainerGuest == true) ? L("LiveContainer Guest") : L("Standalone")
                 )
                 LabeledContent(
-                    "Background Audio Keep-Alive",
-                    value: (probe?.silentAudioActive == true) ? "Active" : "Idle"
+                    L("Background Audio Keep-Alive"),
+                    value: (probe?.silentAudioActive == true) ? L("Active") : L("Idle")
                 )
-                LabeledContent("HTTP Range + POSIX pwrite()", value: "Active")
-                LabeledContent("HLS + AES-128 + MP4 Remux", value: "Active")
+                LabeledContent(L("HTTP Range + POSIX pwrite()"), value: L("Active"))
+                LabeledContent(L("HLS + AES-128 + MP4 Remux"), value: L("Active"))
                 if probe?.cpythonAvailable == true {
-                    LabeledContent("Embedded Python", value: probe?.cpythonVersion ?? "3.x")
+                    LabeledContent(L("Embedded Python"), value: probe?.cpythonVersion ?? "3.x")
                 }
             }
             .font(.subheadline)

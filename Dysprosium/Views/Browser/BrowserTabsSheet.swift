@@ -57,13 +57,13 @@ struct BrowserTabsSheet: View {
 
     private var sheetTitle: String {
         if selectedScope.isPrivate {
-            return "Private Tabs"
+            return L("Private Tabs")
         }
         if browserStore.isMultiProfileEnabled {
             let count = visibleTabs.count
-            return "\(selectedProfile.name) · \(count) \(count == 1 ? "Tab" : "Tabs")"
+            return L("\(selectedProfile.localizedDisplayName) · \(count) Tabs")
         }
-        return "Tabs"
+        return L("Tabs")
     }
 
     /// Ordered carousel scopes `[Profile 1 ... K, Private]` for fluid horizontal swipe previews.
@@ -183,7 +183,7 @@ struct BrowserTabsSheet: View {
                         Button {
                             isShowingProfilesSheet = true
                         } label: {
-                            Label("Profiles", systemImage: "person.2")
+                            Label(L("Profiles"), systemImage: "person.2")
                                 .symbolRenderingMode(.monochrome)
                         }
                         .accessibilityIdentifier("tabs-manage-profiles-button")
@@ -191,7 +191,7 @@ struct BrowserTabsSheet: View {
                         Button {
                             isShowingNewProfileSheet = true
                         } label: {
-                            Label("New Profile", systemImage: "person.crop.circle.badge.plus")
+                            Label(L("New Profile"), systemImage: "person.crop.circle.badge.plus")
                                 .symbolRenderingMode(.monochrome)
                         }
                         .accessibilityIdentifier("tabs-new-profile-button")
@@ -210,7 +210,7 @@ struct BrowserTabsSheet: View {
                         }
                         dismiss()
                     } label: {
-                        Label("Done", systemImage: "checkmark")
+                        Label(L("Done"), systemImage: "checkmark")
                     }
                 }
             }
@@ -240,17 +240,17 @@ struct BrowserTabsSheet: View {
             }
             .confirmationDialog(
                 selectedScope.isPrivate
-                    ? "Close All \(visibleTabs.count) Private Tabs?"
+                    ? L("Close All \(visibleTabs.count) Private Tabs?")
                     : (browserStore.isMultiProfileEnabled
-                        ? "Close All \(visibleTabs.count) Tabs in \(selectedProfile.name)?"
-                        : "Close All \(visibleTabs.count) Tabs?"),
+                        ? L("Close All \(visibleTabs.count) Tabs in \(selectedProfile.localizedDisplayName)?")
+                        : L("Close All \(visibleTabs.count) Tabs?")),
                 isPresented: $isConfirmingCloseAll,
                 titleVisibility: .visible
             ) {
                 Button(
                     selectedScope.isPrivate
-                        ? "Close \(visibleTabs.count) Private Tabs"
-                        : "Close \(visibleTabs.count) Tabs",
+                        ? L("Close \(visibleTabs.count) Private Tabs")
+                        : L("Close \(visibleTabs.count) Tabs"),
                     role: .destructive
                 ) {
                     withAnimation(.spring(duration: 0.28, bounce: 0.06)) {
@@ -260,12 +260,12 @@ struct BrowserTabsSheet: View {
                         )
                     }
                 }
-                Button("Cancel", role: .cancel) {}
+                Button(L("Cancel"), role: .cancel) {}
             } message: {
                 if selectedScope.isPrivate {
-                    Text("Private tabs and their ephemeral session data will be discarded.")
+                    Text(L("Private tabs and their ephemeral session data will be discarded."))
                 } else {
-                    Text("Closed tabs can be reopened from Recently Closed.")
+                    Text(L("Closed tabs can be reopened from Recently Closed."))
                 }
             }
         }
@@ -291,11 +291,11 @@ struct BrowserTabsSheet: View {
                     .foregroundStyle(pTokens.accent)
             }
 
-            Text(p.name)
+            Text(p.localizedDisplayName)
                 .font(.headline)
                 .foregroundStyle(.primary)
 
-            Text("No open tabs in \(p.name). Cookies, logins, history, and favorites are isolated from other profiles.")
+            Text(L("No open tabs in \(p.localizedDisplayName). Cookies, logins, history, and favorites are isolated from other profiles."))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -308,7 +308,7 @@ struct BrowserTabsSheet: View {
                 HStack(spacing: 6) {
                     Image(systemName: "plus")
                         .symbolRenderingMode(.monochrome)
-                    Text("New Tab in \(p.name)")
+                    Text(L("New Tab in \(p.localizedDisplayName)"))
                 }
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(pTokens.onAccent)
@@ -339,11 +339,11 @@ struct BrowserTabsSheet: View {
                     .foregroundStyle(tokens.privateAccent)
             }
 
-            Text("Private Browsing")
+            Text(L("Private Browsing"))
                 .font(.headline)
                 .foregroundStyle(.primary)
 
-            Text("Private tabs use an isolated in-memory store and leave zero history, cookies, or cached data once closed.")
+            Text(L("Private tabs use an isolated in-memory store and leave zero history, cookies, or cached data once closed."))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -356,7 +356,7 @@ struct BrowserTabsSheet: View {
                 HStack(spacing: 6) {
                     Image(systemName: "plus")
                         .symbolRenderingMode(.monochrome)
-                    Text("New Private Tab")
+                    Text(L("New Private Tab"))
                 }
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(tokens.onPrivateAccent)
@@ -384,19 +384,19 @@ struct BrowserTabsSheet: View {
                         isConfirmingCloseAll = true
                     } label: {
                         if isCompactWidth {
-                            Label("Close All", systemImage: "trash")
+                            Label(L("Close All"), systemImage: "trash")
                                 .labelStyle(.iconOnly)
                                 .font(.system(size: 15, weight: .semibold))
                                 .frame(width: 22, height: 22)
                         } else {
-                            Text("Close All")
+                            Text(L("Close All"))
                                 .font(.subheadline.weight(.medium))
                                 .fixedSize(horizontal: true, vertical: false)
                         }
                     }
                     .buttonStyle(.glass)
                     .buttonBorderShape(isCompactWidth ? .circle : .capsule)
-                    .accessibilityLabel("Close All")
+                    .accessibilityLabel(L("Close All"))
                     .accessibilityIdentifier("tabs-close-all-button")
                 } else {
                     Color.clear
@@ -428,7 +428,7 @@ struct BrowserTabsSheet: View {
                     dismiss()
                 } label: {
                     Label(
-                        selectedScope.isPrivate ? "New Private Tab" : "New Tab",
+                        selectedScope.isPrivate ? L("New Private Tab") : L("New Tab"),
                         systemImage: "plus"
                     )
                     .labelStyle(.iconOnly)
@@ -453,7 +453,6 @@ struct BrowserTabsSheet: View {
     ) -> some View {
         let isSelected = !selectedScope.isPrivate
         let tabCount = selectedProfileTabs.count
-        let tabWord = tabCount == 1 ? "tab" : "tabs"
 
         if !browserStore.isMultiProfileEnabled {
             Button {
@@ -463,7 +462,7 @@ struct BrowserTabsSheet: View {
                     Image(systemName: "square.on.square")
                         .symbolRenderingMode(.monochrome)
                         .font(.caption.weight(.semibold))
-                    Text("\(tabCount) \(tabCount == 1 ? "Tab" : "Tabs")")
+                    Text(L("\(tabCount) Tabs"))
                         .font(.caption.monospacedDigit().weight(.semibold))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
@@ -480,7 +479,7 @@ struct BrowserTabsSheet: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(tabCount) \(tabWord)")
+            .accessibilityLabel(L("\(tabCount) tabs"))
             .accessibilityAddTraits(isSelected ? .isSelected : [])
             .accessibilityIdentifier("tabs-scope-standard")
         } else if isSelected {
@@ -503,7 +502,7 @@ struct BrowserTabsSheet: View {
                     Image(systemName: profile.symbolName)
                         .symbolRenderingMode(.monochrome)
                         .font(.caption.weight(.semibold))
-                    Text(profile.name)
+                    Text(profile.localizedDisplayName)
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -525,8 +524,8 @@ struct BrowserTabsSheet: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(profile.name), \(tabCount) \(tabWord)")
-            .accessibilityHint("Switch profile")
+            .accessibilityLabel(L("\(profile.localizedDisplayName), \(tabCount) tabs"))
+            .accessibilityHint(L("Switch profile"))
             .accessibilityAddTraits(.isSelected)
             .accessibilityIdentifier("tabs-scope-profile-menu")
         } else {
@@ -537,7 +536,7 @@ struct BrowserTabsSheet: View {
                     Image(systemName: profile.symbolName)
                         .symbolRenderingMode(.monochrome)
                         .font(.caption.weight(.semibold))
-                    Text(profile.name)
+                    Text(profile.localizedDisplayName)
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -551,7 +550,7 @@ struct BrowserTabsSheet: View {
                 .padding(.vertical, 8.5)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(profile.name), \(tabCount) \(tabWord)")
+            .accessibilityLabel(L("\(profile.localizedDisplayName), \(tabCount) tabs"))
             .accessibilityIdentifier("tabs-scope-profile-button")
         }
     }
@@ -561,11 +560,11 @@ struct BrowserTabsSheet: View {
         let count = privateTabs.count
         let title: String
         if count == 0 {
-            title = "Private"
+            title = L("Private")
         } else if isCompactWidth && browserStore.isMultiProfileEnabled {
-            title = "Private · \(count)"
+            title = L("Private · \(count)")
         } else {
-            title = "Private (\(count))"
+            title = L("Private (\(count))")
         }
         return Button {
             selectScope(.privateBrowsing)
@@ -591,7 +590,7 @@ struct BrowserTabsSheet: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(count == 0 ? "Private" : "Private, \(count) \(count == 1 ? "tab" : "tabs")")
+        .accessibilityLabel(count == 0 ? L("Private") : L("Private, \(count) tabs"))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("tabs-scope-private")
     }
@@ -611,7 +610,7 @@ struct BrowserTabsSheet: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(activeScopeTokens.accent)
 
-                        Text("Reopen Closed")
+                        Text(L("Reopen Closed"))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.primary)
 
@@ -624,7 +623,7 @@ struct BrowserTabsSheet: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Reopen Closed")
+                .accessibilityLabel(L("Reopen Closed"))
                 .accessibilityIdentifier("tabs-reopen-closed-button")
 
                 Spacer(minLength: 4)
@@ -648,7 +647,7 @@ struct BrowserTabsSheet: View {
                         Button(role: .destructive) {
                             browserStore.clearRecentlyClosedTabs(profileID: profileID)
                         } label: {
-                            Label("Clear Recently Closed", systemImage: "trash")
+                            Label(L("Clear Recently Closed"), systemImage: "trash")
                         }
                     } label: {
                         HStack(spacing: 3) {
@@ -663,7 +662,7 @@ struct BrowserTabsSheet: View {
                         .padding(.vertical, 4)
                         .background(Color(.tertiarySystemFill), in: Capsule())
                     }
-                    .accessibilityLabel("Recently Closed Tabs List")
+                    .accessibilityLabel(L("Recently Closed Tabs List"))
                 }
             }
             .padding(.horizontal, 12)
@@ -781,7 +780,7 @@ private struct TabPreviewCardView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Close \(tab.displayTabTitle)")
+                .accessibilityLabel(L("Close \(tab.displayTabTitle)"))
             }
             .padding(.leading, 8)
             .padding(.trailing, 3)
@@ -842,19 +841,19 @@ private struct TabPreviewCardView: View {
         .accessibilityElement(children: .contain)
         .contextMenu {
             Button(action: onDuplicate) {
-                Label("Duplicate Tab", systemImage: "plus.square.on.square")
+                Label(L("Duplicate Tab"), systemImage: "plus.square.on.square")
             }
 
             if canCloseOthers {
                 Button(action: onCloseOthers) {
-                    Label("Close Other Tabs", systemImage: "xmark.square")
+                    Label(L("Close Other Tabs"), systemImage: "xmark.square")
                 }
             }
 
             Divider()
 
             Button(role: .destructive, action: onClose) {
-                Label("Close Tab", systemImage: "xmark")
+                Label(L("Close Tab"), systemImage: "xmark")
             }
         }
     }
@@ -872,7 +871,7 @@ private struct TabPreviewCardView: View {
                         .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
                 }
 
-            Text(tab.isPrivate ? "Private Start" : "Start Page")
+            Text(tab.isPrivate ? L("Private Start") : L("Start Page"))
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.secondary)
         }
@@ -910,7 +909,7 @@ private struct TabPreviewCardView: View {
     private var previewFooterBadges: some View {
         HStack(spacing: 4) {
             if let pdf = tab.activePDF {
-                Text(pdf.pageCount > 0 ? "PDF · \(pdf.pageCount)p" : "PDF")
+                Text(pdf.pageCount > 0 ? L("PDF · \(pdf.pageCount)p") : L("PDF"))
                     .font(.system(size: 9.5, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.primary)
                     .lineLimit(1)

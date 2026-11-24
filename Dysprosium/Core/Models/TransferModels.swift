@@ -5,6 +5,14 @@ public enum TransferKind: String, Codable, Sendable, CaseIterable {
     case directRange = "HTTP Range"
     case hlsStream = "HLS Stream"
     case extractedMedia = "yt-dlp Media"
+
+    public var localizedTitle: String {
+        switch self {
+        case .directRange: return L("HTTP Range")
+        case .hlsStream: return L("HLS Stream")
+        case .extractedMedia: return L("yt-dlp Media")
+        }
+    }
 }
 
 /// Lifecycle state of a transfer job across Control, Data, and Post-Processing planes.
@@ -16,6 +24,18 @@ public enum TransferLifecycle: String, Codable, Sendable, Equatable {
     case paused
     case completed
     case failed
+
+    public var localizedTitle: String {
+        switch self {
+        case .queued: return L("Queued")
+        case .resolving: return L("Resolving")
+        case .downloading: return L("Downloading")
+        case .muxing: return L("Muxing")
+        case .paused: return L("Paused")
+        case .completed: return L("Completed")
+        case .failed: return L("Failed")
+        }
+    }
 
     public var isActive: Bool {
         switch self {
@@ -369,12 +389,12 @@ public struct TransferJob: Identifiable, Codable, Sendable, Equatable {
     /// Concise parallelism & segment topology description (e.g. `16× Lanes · 16 Slices`, `8× Lanes · 142 Segments`).
     public var segmentTopologySummary: String {
         if kind == .hlsStream, let total = totalSegments ?? (completedSegments > 0 ? completedSegments : nil), total > 0 {
-            return "\(configuredLanes)× Lanes · \(total) HLS Segments"
+            return L("\(configuredLanes)× Lanes · \(total) HLS Segments")
         }
         if !slices.isEmpty {
-            return "\(configuredLanes)× Lanes · \(slices.count) Byte-Range Slices"
+            return L("\(configuredLanes)× Lanes · \(slices.count) Byte-Range Slices")
         }
-        return "\(configuredLanes)× Lanes · \(kind.rawValue)"
+        return L("\(configuredLanes)× Lanes · \(kind.localizedTitle)")
     }
 
     /// Compact single-line insight summary for history rows (e.g. `612.5 MB · 14.8 MB/s · 16× · 42s`).
@@ -382,29 +402,20 @@ public struct TransferJob: Identifiable, Codable, Sendable, Equatable {
         var parts: [String] = []
         let size = totalBytes ?? downloadedBytes
         if size > 0 {
-            parts.append(size.formatted(.byteCount(style: .file)))
+            parts.append(DysprosiumFormatters.bytes(size))
         }
         if let avg = effectiveAverageSpeedBytesPerSec, avg > 1 {
-            parts.append("\(Int64(avg).formatted(.byteCount(style: .file)))/s")
+            parts.append(DysprosiumFormatters.speed(avg))
         }
         if kind == .hlsStream, let segs = totalSegments ?? (completedSegments > 0 ? completedSegments : nil), segs > 0 {
-            parts.append("\(segs) segs")
+            parts.append(L("\(segs) segs"))
         } else if !slices.isEmpty {
-            parts.append("\(slices.count)× slices")
+            parts.append(L("\(slices.count)× slices"))
         } else {
             parts.append("\(configuredLanes)×")
         }
         if let dur = effectiveDurationSeconds {
-            let formatted: String
-            if dur < 60 {
-                formatted = dur < 10 ? String(format: "%.1fs", dur) : String(format: "%.0fs", dur)
-            } else {
-                let total = Int(dur.rounded())
-                formatted = total < 3600
-                    ? String(format: "%dm %02ds", total / 60, total % 60)
-                    : String(format: "%dh %02dm", total / 3600, (total % 3600) / 60)
-            }
-            parts.append(formatted)
+            parts.append(DysprosiumFormatters.duration(dur))
         }
         return parts.joined(separator: " · ")
     }

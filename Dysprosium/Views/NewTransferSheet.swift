@@ -35,7 +35,7 @@ struct NewTransferSheet: View {
                             .symbolRenderingMode(.monochrome)
                             .foregroundStyle(.secondary)
 
-                        TextField("https://example.com/video.mp4 or .m3u8", text: $urlText)
+                        TextField(L("https://example.com/video.mp4 or .m3u8"), text: $urlText)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.URL)
@@ -48,7 +48,7 @@ struct NewTransferSheet: View {
                             Button {
                                 urlText = ""
                             } label: {
-                                Label("Clear", systemImage: "xmark.circle.fill")
+                                Label(L("Clear"), systemImage: "xmark.circle.fill")
                                     .labelStyle(.iconOnly)
                                     .symbolRenderingMode(.monochrome)
                                     .foregroundStyle(.secondary)
@@ -69,15 +69,15 @@ struct NewTransferSheet: View {
                         .accessibilityIdentifier("intake-paste-button")
                     }
                 } header: {
-                    Text("Source URL")
+                    Text(L("Source URL"))
                 } footer: {
-                    Text("Direct files use parallel HTTP 206 byte-range slices; .m3u8 playlists remux losslessly to .mp4; webpage URLs open in Browser.")
+                    Text(L("Direct files use parallel HTTP 206 byte-range slices; .m3u8 playlists remux losslessly to .mp4; webpage URLs open in Browser."))
                 }
 
-                Section("Concurrency") {
-                    Picker("Parallel Lanes", selection: $selectedLanes) {
+                Section(L("Concurrency")) {
+                    Picker(L("Parallel Lanes"), selection: $selectedLanes) {
                         ForEach(Self.lanePresets, id: \.self) { count in
-                            Text(count == 1 ? "1× Serial" : "\(count)× Range Split")
+                            Text(count == 1 ? L("1× Serial") : L("\(count)× Range Split"))
                                 .tag(count)
                         }
                     }
@@ -86,16 +86,16 @@ struct NewTransferSheet: View {
             }
             .listStyle(.insetGrouped)
             .listSectionSpacing(DysprosiumTokens.Space.sectionSpacing)
-            .navigationTitle("New Download")
+            .navigationTitle(L("New Download"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
+                    Button(L("Cancel")) {
                         dismiss()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Download") {
+                    Button(L("Download")) {
                         submitAndDismiss()
                     }
                     .fontWeight(.semibold)

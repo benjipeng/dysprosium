@@ -12,6 +12,7 @@ import WebKit
 /// - Private Browsing remains a single orthogonal ephemeral pool (`isPrivate == true`, `profileID == nil`).
 public struct BrowserProfile: Identifiable, Codable, Equatable, Sendable {
     public static let defaultID = "00000000-0000-4000-8000-000000000001"
+    public static let defaultName = "Personal"
     /// Sentinel `sourceProfileID` tagged on transfers initiated from ephemeral Private tabs so
     /// Private cookies are never conflated with Default profile auth headers and are scrubbed when
     /// the last Private tab closes.
@@ -27,6 +28,24 @@ public struct BrowserProfile: Identifiable, Codable, Equatable, Sendable {
         public init(symbol: String, label: String) {
             self.symbol = symbol
             self.label = label
+        }
+
+        public var localizedLabel: String {
+            switch symbol {
+            case "person.crop.circle": return L("Personal")
+            case "briefcase.fill": return L("Work")
+            case "graduationcap.fill": return L("Study")
+            case "flask.fill": return L("Research")
+            case "play.rectangle.fill": return L("Media")
+            case "cart.fill": return L("Shopping")
+            case "gamecontroller.fill": return L("Gaming")
+            case "terminal.fill": return L("Dev")
+            case "airplane": return L("Travel")
+            case "book.closed.fill": return L("Reading")
+            case "building.columns.fill": return L("Finance")
+            case "sparkles": return L("Focus")
+            default: return AppLocalization.dynamic(label)
+            }
         }
     }
 
@@ -45,12 +64,14 @@ public struct BrowserProfile: Identifiable, Codable, Equatable, Sendable {
         .init(symbol: "sparkles", label: "Focus")
     ]
 
-    public static let quickNameSuggestions: [(name: String, symbol: String, palette: DysprosiumPalettePreset)] = [
-        ("Work", "briefcase.fill", .ultramarine),
-        ("Study", "graduationcap.fill", .terbium),
-        ("Research", "flask.fill", .europium),
-        ("Media", "play.rectangle.fill", .obsidian)
-    ]
+    public static var quickNameSuggestions: [(name: String, symbol: String, palette: DysprosiumPalettePreset)] {
+        [
+            (L("Work"), "briefcase.fill", .ultramarine),
+            (L("Study"), "graduationcap.fill", .terbium),
+            (L("Research"), "flask.fill", .europium),
+            (L("Media"), "play.rectangle.fill", .obsidian)
+        ]
+    }
 
     public let id: String
     public var name: String
@@ -81,7 +102,7 @@ public struct BrowserProfile: Identifiable, Codable, Equatable, Sendable {
         createdAt: Date = Date()
     ) {
         self.id = id
-        self.name = Self.sanitizedName(name, fallback: isDefault ? "Personal" : "Profile")
+        self.name = Self.sanitizedName(name, fallback: isDefault ? Self.defaultName : "Profile")
         self.symbolName = symbolName.isEmpty ? "person.crop.circle" : symbolName
         self.palettePreset = palettePreset
         self.isDefault = isDefault
@@ -97,6 +118,10 @@ public struct BrowserProfile: Identifiable, Codable, Equatable, Sendable {
             : trimmedTemplate
         self.sortOrder = sortOrder
         self.createdAt = createdAt
+    }
+
+    public var localizedDisplayName: String {
+        (id == Self.defaultID && name == Self.defaultName) ? L("Personal") : name
     }
 
     public var shortSeedSpecimen: String {
@@ -151,7 +176,7 @@ public struct BrowserProfile: Identifiable, Codable, Equatable, Sendable {
 
         return BrowserProfile(
             id: defaultID,
-            name: "Personal",
+            name: defaultName,
             symbolName: "person.crop.circle",
             palettePreset: resolvedPalette,
             isDefault: true,

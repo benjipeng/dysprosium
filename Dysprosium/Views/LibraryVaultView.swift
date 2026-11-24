@@ -127,6 +127,14 @@ struct LibraryVaultView: View {
         case newest = "Newest"
         case largest = "Largest"
         case alphabetical = "Name"
+
+        var localizedTitle: String {
+            switch self {
+            case .newest: return L("Newest")
+            case .largest: return L("Largest")
+            case .alphabetical: return L("Name")
+            }
+        }
     }
 
     private enum KindFilter: String, CaseIterable, Hashable {
@@ -134,6 +142,15 @@ struct LibraryVaultView: View {
         case video = "Video"
         case audio = "Audio"
         case other = "Files"
+
+        var localizedTitle: String {
+            switch self {
+            case .all: return L("All")
+            case .video: return L("Video")
+            case .audio: return L("Audio")
+            case .other: return L("Files")
+            }
+        }
     }
 
     @Environment(\.dysprosiumTokens) private var tokens
@@ -211,7 +228,7 @@ struct LibraryVaultView: View {
                 )
             } else {
                 let ext = item.fileURL.pathExtension.uppercased()
-                let kindLabel = ext.isEmpty ? item.mediaKind.rawValue : ext
+                let kindLabel = ext.isEmpty ? item.mediaKind.localizedTitle : ext
                 entries.append(
                     MergedVaultEntry(
                         id: item.id,
@@ -380,9 +397,9 @@ struct LibraryVaultView: View {
                                 .contentMargins(.leading, centerHalfGutter, for: .scrollContent)
                         } else {
                             ContentUnavailableView(
-                                "No Selection",
+                                L("No Selection"),
                                 systemImage: "arrow.down.circle",
-                                description: Text("Select an active transfer to inspect 16× byte-range slices, or select a downloaded file to preview metadata.")
+                                description: Text(L("Select an active transfer to inspect 16× byte-range slices, or select a downloaded file to preview metadata."))
                             )
                         }
                     }
@@ -414,10 +431,10 @@ struct LibraryVaultView: View {
                     }
             }
         }
-        .searchable(text: $searchQuery, prompt: "Search downloads…")
+        .searchable(text: $searchQuery, prompt: L("Search downloads…"))
         .searchScopes($kindFilter) {
             ForEach(KindFilter.allCases, id: \.self) { scope in
-                Text(scope.rawValue).tag(scope)
+                Text(scope.localizedTitle).tag(scope)
             }
         }
         .toolbar {
@@ -425,7 +442,7 @@ struct LibraryVaultView: View {
                 Button {
                     isShowingNewTransferSheet = true
                 } label: {
-                    Label("New Download", systemImage: "plus")
+                    Label(L("New Download"), systemImage: "plus")
                         .symbolRenderingMode(.monochrome)
                 }
                 .tint(tokens.glassIconPrimary)
@@ -436,7 +453,7 @@ struct LibraryVaultView: View {
         }
         .navigationDestination(for: DownloadsSelection.self) { target in
             inspectorDestination(for: target, visibleEntries: visibleEntries, isEmbedded: false)
-                .navigationTitle("Inspector")
+                .navigationTitle(L("Inspector"))
                 .navigationBarTitleDisplayMode(.inline)
         }
         .task {
@@ -481,11 +498,11 @@ struct LibraryVaultView: View {
             if let target = compactInspectorSelection {
                 NavigationStack {
                     inspectorDestination(for: target, visibleEntries: visibleEntries, isEmbedded: false)
-                        .navigationTitle("Inspector")
+                        .navigationTitle(L("Inspector"))
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
                             ToolbarItem(placement: .confirmationAction) {
-                                Button("Done") {
+                                Button(L("Done")) {
                                     compactInspectorSelection = nil
                                 }
                             }
@@ -494,12 +511,12 @@ struct LibraryVaultView: View {
             }
         }
         .confirmationDialog(
-            clearHistoryOnlyOffDevice ? "Clear Off-Device History?" : "Clear Transfer History?",
+            clearHistoryOnlyOffDevice ? L("Clear Off-Device History?") : L("Clear Transfer History?"),
             isPresented: $isConfirmingClearHistory,
             titleVisibility: .visible
         ) {
             Button(
-                clearHistoryOnlyOffDevice ? "Clear Off-Device History" : "Clear All Transfer History",
+                clearHistoryOnlyOffDevice ? L("Clear Off-Device History") : L("Clear All Transfer History"),
                 role: .destructive
             ) {
                 scheduler.clearDownloadHistory(onlyOffDevice: clearHistoryOnlyOffDevice)
@@ -510,13 +527,13 @@ struct LibraryVaultView: View {
                     compactInspectorSelection = nil
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L("Cancel"), role: .cancel) {}
         } message: {
-            Text("Clears saved transfer metrics and history records. Downloaded files on device will not be deleted.")
+            Text(L("Clears saved transfer metrics and history records. Downloaded files on device will not be deleted."))
         }
-        .alert("Rename File", isPresented: isRenamingBinding) {
-            TextField("Filename", text: $renameText)
-            Button("Save") {
+        .alert(L("Rename File"), isPresented: isRenamingBinding) {
+            TextField(L("Filename"), text: $renameText)
+            Button(L("Save")) {
                 if let target = renamingEntry {
                     _ = try? scheduler.renameVaultFile(
                         jobID: target.trackedJobID,
@@ -527,7 +544,7 @@ struct LibraryVaultView: View {
                     refreshDiskInventory()
                 }
             }
-            Button("Cancel", role: .cancel) {
+            Button(L("Cancel"), role: .cancel) {
                 renamingEntry = nil
             }
         }
@@ -555,11 +572,11 @@ struct LibraryVaultView: View {
                                 .foregroundStyle(tokens.statusWarning)
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Link \"\(folderName)\" for \(CustomSaveFolderManager.currentHostDisplayName())")
+                                Text(L("Link \"\(folderName)\" for \(CustomSaveFolderManager.currentHostDisplayName())"))
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.primary)
 
-                                Text("iOS requires a one-time folder confirmation per LiveContainer instance so all multi-open apps share one library.")
+                                Text(L("iOS requires a one-time folder confirmation per LiveContainer instance so all multi-open apps share one library."))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -569,7 +586,7 @@ struct LibraryVaultView: View {
                             Button {
                                 saveFolderFlow.isShowingPicker = true
                             } label: {
-                                Text("Grant Access…")
+                                Text(L("Grant Access…"))
                                     .font(.subheadline.weight(.semibold))
                             }
                             .buttonStyle(.borderedProminent)
@@ -578,7 +595,7 @@ struct LibraryVaultView: View {
                             .tint(tokens.accent)
                             .accessibilityIdentifier("downloads-grant-folder-button")
 
-                            Button("Use Default") {
+                            Button(L("Use Default")) {
                                 _ = saveFolderManager.resetToDefaultFolder()
                                 refreshDiskInventory()
                             }
@@ -629,12 +646,12 @@ struct LibraryVaultView: View {
                                 Image(systemName: "trash")
                             }
                             .tint(tokens.statusDanger)
-                            .accessibilityLabel("Cancel Download")
+                            .accessibilityLabel(L("Cancel Download"))
                         }
                     }
                 } header: {
                     HStack {
-                        Text("Active (\(activeJobs.count))")
+                        Text(L("Active (\(activeJobs.count))"))
                         Spacer()
                         if scheduler.activeTransferCount > 0 {
                             Text(DysprosiumFormatters.speed(scheduler.aggregateSpeedBytesPerSec))
@@ -650,9 +667,9 @@ struct LibraryVaultView: View {
             if allCount == 0 && activeJobs.isEmpty && allOffDeviceHistoryJobs.isEmpty {
                 Section {
                     ContentUnavailableView(
-                        "No Downloads Yet",
+                        L("No Downloads Yet"),
                         systemImage: "arrow.down.circle",
-                        description: Text("Capture videos in Browser or tap '+' to start a multi-lane download.")
+                        description: Text(L("Capture videos in Browser or tap '+' to start a multi-lane download."))
                     )
                     .padding(.vertical, 8)
                 }
@@ -695,7 +712,7 @@ struct LibraryVaultView: View {
                                     Image(systemName: "pencil")
                                 }
                                 .tint(tokens.accent)
-                                .accessibilityLabel("Rename")
+                                .accessibilityLabel(L("Rename"))
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
@@ -704,14 +721,14 @@ struct LibraryVaultView: View {
                                     Image(systemName: "trash")
                                 }
                                 .tint(tokens.statusDanger)
-                                .accessibilityLabel("Delete")
+                                .accessibilityLabel(L("Delete"))
                             }
                             .contextMenu {
                                 Button {
                                     openEntry(entry)
                                 } label: {
                                     Label(
-                                        entry.supportsNativeAVPlayback ? "Play" : "Preview",
+                                        entry.supportsNativeAVPlayback ? L("Play") : L("Preview"),
                                         systemImage: entry.supportsNativeAVPlayback ? "play" : "eye"
                                     )
                                 }
@@ -723,23 +740,23 @@ struct LibraryVaultView: View {
                                         compactInspectorSelection = .savedFile(entry.id)
                                     }
                                 } label: {
-                                    Label("Inspect Insights", systemImage: "chart.xyaxis.line")
+                                    Label(L("Inspect Insights"), systemImage: "chart.xyaxis.line")
                                 }
 
                                 Button {
                                     beginRename(entry)
                                 } label: {
-                                    Label("Rename…", systemImage: "pencil")
+                                    Label(L("Rename…"), systemImage: "pencil")
                                 }
 
                                 Button {
                                     exportingFileItem = ExportableFileItem(url: entry.fileURL)
                                 } label: {
-                                    Label("Export to Files…", systemImage: "folder.badge.plus")
+                                    Label(L("Export to Files…"), systemImage: "folder.badge.plus")
                                 }
 
                                 ShareLink(item: entry.fileURL) {
-                                    Label("Share…", systemImage: "square.and.arrow.up")
+                                    Label(L("Share…"), systemImage: "square.and.arrow.up")
                                 }
 
                                 Divider()
@@ -748,23 +765,23 @@ struct LibraryVaultView: View {
                                     Button {
                                         removeLocalFileKeepingHistory(entry)
                                     } label: {
-                                        Label("Remove Local Copy (Keep History)", systemImage: "externaldrive.badge.minus")
+                                        Label(L("Remove Local Copy (Keep History)"), systemImage: "externaldrive.badge.minus")
                                     }
                                 }
 
                                 Button(role: .destructive) {
                                     deleteEntry(entry)
                                 } label: {
-                                    Label("Delete File & Record", systemImage: "trash")
+                                    Label(L("Delete File & Record"), systemImage: "trash")
                                 }
                             }
                         }
                     }
                 } header: {
                     HStack {
-                        Text(kindFilter == .all ? "Files (\(visibleEntries.count))" : "\(kindFilter.rawValue) (\(visibleEntries.count))")
+                        Text(kindFilter == .all ? L("Files (\(visibleEntries.count))") : L("\(kindFilter.localizedTitle) (\(visibleEntries.count))"))
                         Spacer()
-                        Text(sortOrder.rawValue)
+                        Text(sortOrder.localizedTitle)
                             .foregroundStyle(.secondary)
                     }
                     .font(.caption.monospacedDigit())
@@ -800,20 +817,20 @@ struct LibraryVaultView: View {
                                 Image(systemName: "trash")
                             }
                             .tint(tokens.statusDanger)
-                            .accessibilityLabel("Remove from History")
+                            .accessibilityLabel(L("Remove from History"))
                         }
                         .contextMenu {
                             Button {
                                 let created = scheduler.redownload(from: job)
                                 selection = .activeTransfer(created.id)
                             } label: {
-                                Label("Download Again", systemImage: "arrow.clockwise")
+                                Label(L("Download Again"), systemImage: "arrow.clockwise")
                             }
 
                             Button {
                                 UIPasteboard.general.string = job.sourceURL.absoluteString
                             } label: {
-                                Label("Copy Source URL", systemImage: "doc.on.doc")
+                                Label(L("Copy Source URL"), systemImage: "doc.on.doc")
                             }
 
                             Divider()
@@ -821,15 +838,15 @@ struct LibraryVaultView: View {
                             Button(role: .destructive) {
                                 scheduler.remove(id: job.id, deleteVaultFile: false)
                             } label: {
-                                Label("Remove from History", systemImage: "trash")
+                                Label(L("Remove from History"), systemImage: "trash")
                             }
                         }
                     }
                 } header: {
                     HStack {
-                        Text("History · Off Device (\(historyJobs.count))")
+                        Text(L("History · Off Device (\(historyJobs.count))"))
                         Spacer()
-                        Button("Clear") {
+                        Button(L("Clear")) {
                             clearHistoryOnlyOffDevice = true
                             isConfirmingClearHistory = true
                         }
@@ -841,7 +858,7 @@ struct LibraryVaultView: View {
             }
 
             // 4. Native Storage Summary & Export Handoff
-            Section("Storage") {
+            Section(L("Storage")) {
                 SaveLocationRow(
                     flow: $saveFolderFlow,
                     accessibilityID: "downloads-choose-save-folder-button"
@@ -849,14 +866,14 @@ struct LibraryVaultView: View {
                     refreshDiskInventory()
                 }
 
-                LabeledContent("Downloaded") {
-                    Text("\(DysprosiumFormatters.bytes(totalDownloadedBytes)) · \(allCount) files")
+                LabeledContent(L("Downloaded")) {
+                    Text(L("\(DysprosiumFormatters.bytes(totalDownloadedBytes)) · \(allCount) files"))
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(.primary)
                 }
 
                 if let free = freeDiskSpaceBytes {
-                    LabeledContent("Available on Device") {
+                    LabeledContent(L("Available on Device")) {
                         Text(DysprosiumFormatters.bytes(free))
                             .font(.subheadline.monospacedDigit())
                             .foregroundStyle(.secondary)
@@ -864,8 +881,8 @@ struct LibraryVaultView: View {
                 }
 
                 if scheduler.completedJobCount > 0 {
-                    LabeledContent("Transfer Records") {
-                        Text("\(scheduler.completedJobCount) logged")
+                    LabeledContent(L("Transfer Records")) {
+                        Text(L("\(scheduler.completedJobCount) logged"))
                             .font(.subheadline.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
@@ -873,7 +890,7 @@ struct LibraryVaultView: View {
 
                 if !LiveContainerEnvironment.isDownloadsDirectoryVisibleInFiles && allCount > 0 {
                     ShareLink(item: LiveContainerEnvironment.downloadsDirectory) {
-                        Label("Export Downloads Folder…", systemImage: "square.and.arrow.up")
+                        Label(L("Export Downloads Folder…"), systemImage: "square.and.arrow.up")
                             .symbolRenderingMode(.monochrome)
                     }
                 }
@@ -883,7 +900,7 @@ struct LibraryVaultView: View {
                         clearHistoryOnlyOffDevice = false
                         isConfirmingClearHistory = true
                     } label: {
-                        Label("Clear Transfer History…", systemImage: "clock.arrow.circlepath")
+                        Label(L("Clear Transfer History…"), systemImage: "clock.arrow.circlepath")
                             .symbolRenderingMode(.monochrome)
                     }
                 }
@@ -914,7 +931,7 @@ struct LibraryVaultView: View {
                     isEmbeddedInSplit: isEmbedded
                 )
             } else {
-                ContentUnavailableView("Transfer Completed", systemImage: "checkmark.circle")
+                ContentUnavailableView(L("Transfer Completed"), systemImage: "checkmark.circle")
             }
         case .savedFile(let fileID):
             if let entry = visibleEntries.first(where: { $0.id == fileID }) ?? allMergedEntries.first(where: { $0.id == fileID }) {
@@ -931,7 +948,7 @@ struct LibraryVaultView: View {
                     } : nil
                 )
             } else {
-                ContentUnavailableView("File Not Found", systemImage: "doc.questionmark")
+                ContentUnavailableView(L("File Not Found"), systemImage: "doc.questionmark")
             }
         case .historyRecord(let jobID):
             if let job = scheduler.job(for: jobID) {
@@ -951,7 +968,7 @@ struct LibraryVaultView: View {
                     }
                 )
             } else {
-                ContentUnavailableView("History Cleared", systemImage: "clock.arrow.circlepath")
+                ContentUnavailableView(L("History Cleared"), systemImage: "clock.arrow.circlepath")
             }
         }
     }
@@ -963,17 +980,17 @@ struct LibraryVaultView: View {
     ) -> some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             Menu {
-                Picker("Sort By", selection: $sortOrder) {
+                Picker(L("Sort By"), selection: $sortOrder) {
                     ForEach(SortOrder.allCases, id: \.self) { option in
-                        Text(option.rawValue).tag(option)
+                        Text(option.localizedTitle).tag(option)
                     }
                 }
 
                 Divider()
 
-                Picker("Category", selection: $kindFilter) {
+                Picker(L("Category"), selection: $kindFilter) {
                     ForEach(KindFilter.allCases, id: \.self) { kind in
-                        Text(kind.rawValue).tag(kind)
+                        Text(kind.localizedTitle).tag(kind)
                     }
                 }
 
@@ -988,7 +1005,7 @@ struct LibraryVaultView: View {
                     )
                     selection = .activeTransfer(job.id)
                 } label: {
-                    Label("Test 16× HTTP Range MP4", systemImage: "network")
+                    Label(L("Test 16× HTTP Range MP4"), systemImage: "network")
                 }
 
                 Button {
@@ -999,7 +1016,7 @@ struct LibraryVaultView: View {
                     )
                     selection = .activeTransfer(job.id)
                 } label: {
-                    Label("Test 8× HLS → MP4 Remux", systemImage: "film.stack")
+                    Label(L("Test 8× HLS → MP4 Remux"), systemImage: "film.stack")
                 }
 
                 Button {
@@ -1010,11 +1027,11 @@ struct LibraryVaultView: View {
                         }
                     }
                 } label: {
-                    Label("Local 16× Work-Stealing Benchmark", systemImage: "bolt.horizontal")
+                    Label(L("Local 16× Work-Stealing Benchmark"), systemImage: "bolt.horizontal")
                 }
                 #endif
             } label: {
-                Label("Sort & Filter", systemImage: "arrow.up.arrow.down")
+                Label(L("Sort & Filter"), systemImage: "arrow.up.arrow.down")
                     .symbolRenderingMode(.monochrome)
             }
             .tint(tokens.glassIconPrimary)
@@ -1023,7 +1040,7 @@ struct LibraryVaultView: View {
             Button {
                 refreshDiskInventory()
             } label: {
-                Label("Rescan", systemImage: "arrow.clockwise")
+                Label(L("Rescan"), systemImage: "arrow.clockwise")
                     .symbolRenderingMode(.monochrome)
             }
             .tint(tokens.glassIconPrimary)
@@ -1122,14 +1139,14 @@ private struct VaultFileRowView: View {
 
             if showInlineShare {
                 ShareLink(item: entry.fileURL) {
-                    Label("Share", systemImage: "square.and.arrow.up")
+                    Label(L("Share"), systemImage: "square.and.arrow.up")
                         .labelStyle(.iconOnly)
                         .symbolRenderingMode(.monochrome)
                         .font(.subheadline)
                         .foregroundStyle(tokens.accent)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Share \(entry.displayTitle)")
+                .accessibilityLabel(L("Share \(entry.displayTitle)"))
             }
         }
         .padding(.vertical, 2)
@@ -1211,7 +1228,7 @@ private struct VaultFileInspectorView: View {
 
                         Button(action: onOpen) {
                             Label(
-                                entry.supportsNativeAVPlayback ? "Play" : "Preview",
+                                entry.supportsNativeAVPlayback ? L("Play") : L("Preview"),
                                 systemImage: entry.supportsNativeAVPlayback ? "play.fill" : "eye.fill"
                             )
                             .symbolRenderingMode(.monochrome)
@@ -1230,71 +1247,71 @@ private struct VaultFileInspectorView: View {
                 }
                 .padding(.vertical, 4)
             } header: {
-                Text("Inspector")
+                Text(L("Inspector"))
             }
 
             if let trackedJob {
                 TransferInsightsSection(job: trackedJob, isOnDevice: true)
             }
 
-            Section("Metadata") {
-                LabeledContent("Size", value: DysprosiumFormatters.bytes(entry.byteSize))
+            Section(L("Metadata")) {
+                LabeledContent(L("Size"), value: DysprosiumFormatters.bytes(entry.byteSize))
                     .font(.subheadline.monospacedDigit())
 
-                LabeledContent("Format", value: entry.fileURL.pathExtension.uppercased().isEmpty ? entry.mediaKind.rawValue : entry.fileURL.pathExtension.uppercased())
+                LabeledContent(L("Format"), value: entry.fileURL.pathExtension.uppercased().isEmpty ? entry.mediaKind.localizedTitle : entry.fileURL.pathExtension.uppercased())
                     .font(.subheadline)
 
                 if let resolutionText {
-                    LabeledContent("Dimensions", value: resolutionText)
+                    LabeledContent(L("Dimensions"), value: resolutionText)
                         .font(.subheadline.monospacedDigit())
                 }
 
                 if let durationText {
-                    LabeledContent("Duration", value: durationText)
+                    LabeledContent(L("Duration"), value: durationText)
                         .font(.subheadline.monospacedDigit())
                 }
 
                 if let domain = entry.sourceDomain {
-                    LabeledContent("Source", value: domain)
+                    LabeledContent(L("Source"), value: domain)
                         .font(.subheadline)
                 }
 
-                LabeledContent("Modified") {
+                LabeledContent(L("Modified")) {
                     Text(entry.modifiedAt, style: .date)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Section("Actions") {
+            Section(L("Actions")) {
                 Button {
                     exportingFileItem = ExportableFileItem(url: entry.fileURL)
                 } label: {
-                    Label("Export to Files…", systemImage: "folder.badge.plus")
+                    Label(L("Export to Files…"), systemImage: "folder.badge.plus")
                         .symbolRenderingMode(.monochrome)
                 }
                 .accessibilityIdentifier("vault-inspector-export-to-files-button")
 
                 ShareLink(item: entry.fileURL) {
-                    Label("Share…", systemImage: "square.and.arrow.up")
+                    Label(L("Share…"), systemImage: "square.and.arrow.up")
                         .symbolRenderingMode(.monochrome)
                 }
 
                 Button(action: onRename) {
-                    Label("Rename File…", systemImage: "pencil")
+                    Label(L("Rename File…"), systemImage: "pencil")
                         .symbolRenderingMode(.monochrome)
                 }
 
                 if LiveContainerEnvironment.isDownloadsDirectoryVisibleInFiles {
                     Button(action: onOpenInFiles) {
-                        Label("Show in iOS Files", systemImage: "folder")
+                        Label(L("Show in iOS Files"), systemImage: "folder")
                             .symbolRenderingMode(.monochrome)
                     }
                 }
 
                 if let onRemoveLocalKeepingHistory {
                     Button(role: .destructive, action: onRemoveLocalKeepingHistory) {
-                        Label("Remove Local Copy (Keep History)", systemImage: "externaldrive.badge.minus")
+                        Label(L("Remove Local Copy (Keep History)"), systemImage: "externaldrive.badge.minus")
                             .symbolRenderingMode(.monochrome)
                     }
                 }
@@ -1366,7 +1383,7 @@ private struct TransferInsightsSection: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 0) {
                     metricCell(
-                        label: "AVG SPEED",
+                        label: L("AVG SPEED"),
                         value: job.effectiveAverageSpeedBytesPerSec.map(DysprosiumFormatters.speed) ?? "—",
                         tint: tokens.accent,
                         leadingInset: 0
@@ -1374,7 +1391,7 @@ private struct TransferInsightsSection: View {
                     Divider()
                         .frame(height: 28)
                     metricCell(
-                        label: "PEAK",
+                        label: L("PEAK"),
                         value: job.effectivePeakSpeedBytesPerSec.map(DysprosiumFormatters.speed) ?? "—",
                         tint: .primary,
                         leadingInset: 10
@@ -1382,7 +1399,7 @@ private struct TransferInsightsSection: View {
                     Divider()
                         .frame(height: 28)
                     metricCell(
-                        label: "ELAPSED",
+                        label: L("ELAPSED"),
                         value: DysprosiumFormatters.duration(job.effectiveDurationSeconds),
                         tint: .primary,
                         leadingInset: 10
@@ -1397,32 +1414,32 @@ private struct TransferInsightsSection: View {
             }
             .padding(.vertical, 2)
 
-            LabeledContent("Parallelism", value: job.segmentTopologySummary)
+            LabeledContent(L("Parallelism"), value: job.segmentTopologySummary)
                 .font(.subheadline.monospacedDigit())
 
             if let completed = job.effectiveCompletedAt {
-                LabeledContent("Completed") {
-                    Text(completed, format: .dateTime.month(.abbreviated).day().hour().minute())
+                LabeledContent(L("Completed")) {
+                    Text(completed, format: .dateTime.month(.abbreviated).day().hour().minute().locale(AppLocalization.currentLocale))
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
             }
 
-            LabeledContent("Local File") {
+            LabeledContent(L("Local File")) {
                 HStack(spacing: 6) {
                     Circle()
                         .fill(isOnDevice ? tokens.statusSuccess : Color.secondary.opacity(0.6))
                         .frame(width: 7, height: 7)
-                    Text(isOnDevice ? "On Device" : "Off Device · Moved or Removed")
+                    Text(isOnDevice ? L("On Device") : L("Off Device · Moved or Removed"))
                         .font(.subheadline)
                         .foregroundStyle(isOnDevice ? .primary : .secondary)
                 }
             }
         } header: {
             HStack {
-                Text("Transfer Insights")
+                Text(L("Transfer Insights"))
                 Spacer()
-                Text(job.kind.rawValue)
+                Text(job.kind.localizedTitle)
                     .foregroundStyle(.secondary)
             }
             .font(.caption.monospacedDigit())
@@ -1524,12 +1541,12 @@ private struct TransferHistoryInspectorView: View {
                 }
                 .padding(.vertical, 4)
             } header: {
-                Text("Transfer Record")
+                Text(L("Transfer Record"))
             }
 
             TransferInsightsSection(job: job, isOnDevice: false)
 
-            Section("Source") {
+            Section(L("Source")) {
                 Text(job.sourceURL.absoluteString)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
@@ -1545,19 +1562,19 @@ private struct TransferHistoryInspectorView: View {
                         copiedURL = false
                     }
                 } label: {
-                    Label(copiedURL ? "Copied Source URL" : "Copy Source URL", systemImage: copiedURL ? "checkmark" : "doc.on.doc")
+                    Label(copiedURL ? L("Copied Source URL") : L("Copy Source URL"), systemImage: copiedURL ? "checkmark" : "doc.on.doc")
                         .symbolRenderingMode(.monochrome)
                 }
             }
 
-            Section("Actions") {
+            Section(L("Actions")) {
                 Button(action: onRedownload) {
-                    Label("Download Again", systemImage: "arrow.clockwise")
+                    Label(L("Download Again"), systemImage: "arrow.clockwise")
                         .symbolRenderingMode(.monochrome)
                 }
 
                 Button(role: .destructive, action: onRemoveHistory) {
-                    Label("Remove from History", systemImage: "trash")
+                    Label(L("Remove from History"), systemImage: "trash")
                         .symbolRenderingMode(.monochrome)
                 }
             }

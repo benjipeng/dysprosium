@@ -91,7 +91,7 @@ public final class EmbeddedPythonBridge: NSObject, @unchecked Sendable {
                 code: 404,
                 userInfo: [
                     NSLocalizedDescriptionKey:
-                        "Embedded Python runtime not installed. Direct HTTP Range & HLS streams work natively; run scripts/bootstrap_frameworks.sh to enable yt-dlp webpage extraction."
+                        L("Embedded Python runtime not installed. Direct HTTP Range & HLS streams work natively; run scripts/bootstrap_frameworks.sh to enable yt-dlp webpage extraction.")
                 ]
             )
         }
@@ -196,7 +196,7 @@ public final class EmbeddedPythonBridge: NSObject, @unchecked Sendable {
                 code: 404,
                 userInfo: [
                     NSLocalizedDescriptionKey:
-                        "Embedded Python runtime not installed. Direct HTTP Range & HLS streams work natively; run scripts/bootstrap_frameworks.sh to enable yt-dlp webpage extraction."
+                        L("Embedded Python runtime not installed. Direct HTTP Range & HLS streams work natively; run scripts/bootstrap_frameworks.sh to enable yt-dlp webpage extraction.")
                 ]
             )
         }

@@ -13,12 +13,12 @@ enum BrowsingClearTimePreset: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .lastHour: return "Last Hour"
-        case .last24Hours: return "Last 24 Hours"
-        case .today: return "Today"
-        case .last7Days: return "Last 7 Days"
-        case .allTime: return "All Time"
-        case .customWheel: return "Custom Time…"
+        case .lastHour: return L("Last Hour")
+        case .last24Hours: return L("Last 24 Hours")
+        case .today: return L("Today")
+        case .last7Days: return L("Last 7 Days")
+        case .allTime: return L("All Time")
+        case .customWheel: return L("Custom Time…")
         }
     }
 
@@ -106,44 +106,50 @@ struct ClearBrowsingDataSheet: View {
     private var confirmationSummaryText: String {
         var parts: [String] = []
         if includeHistory {
-            parts.append("History (\(matchingHistoryCount))")
+            parts.append(L("History (\(matchingHistoryCount))"))
         }
         if includeCache {
-            parts.append("Cache")
+            parts.append(L("Cache"))
         }
         if includeCookiesAndSessions {
-            parts.append("Cookies & Logins")
+            parts.append(L("Cookies & Logins"))
         }
         if closeStandardTabs {
-            parts.append("\(standardTabCount) \(standardTabCount == 1 ? "Tab" : "Tabs")")
+            parts.append(L("\(standardTabCount) Tabs"))
         }
-        return parts.joined(separator: ", ")
+        return parts.joined(separator: L(", "))
     }
 
     private func reclaimedHeadline(for report: BrowsingClearReport) -> String {
         let remainingTemp = footprint?.stagingTempBytes ?? 0
-        let ghostSuffix = remainingTemp == 0
-            ? "0 ghost files remaining"
-            : "\(formatStorageBytes(remainingTemp)) temp remaining"
         if report.bytesReclaimed > 0 {
-            return "Freed \(formatStorageBytes(report.bytesReclaimed)) · \(ghostSuffix)"
+            let freedText = formatStorageBytes(report.bytesReclaimed)
+            if remainingTemp == 0 {
+                return L("Freed \(freedText) · 0 ghost files remaining")
+            }
+            let tempText = formatStorageBytes(remainingTemp)
+            return L("Freed \(freedText) · \(tempText) temp remaining")
         }
-        return "Cleared cleanly · \(ghostSuffix)"
+        if remainingTemp == 0 {
+            return L("Cleared cleanly · 0 ghost files remaining")
+        }
+        let tempText = formatStorageBytes(remainingTemp)
+        return L("Cleared cleanly · \(tempText) temp remaining")
     }
 
     private func reclaimedDetailSummary(for report: BrowsingClearReport) -> String? {
         var details: [String] = []
         if report.historyEntriesRemoved > 0 {
-            details.append("\(report.historyEntriesRemoved) history")
+            details.append(L("\(report.historyEntriesRemoved) history"))
         }
         if report.websiteRecordsRemoved > 0 {
-            details.append("\(report.websiteRecordsRemoved) site \(report.websiteRecordsRemoved == 1 ? "record" : "records")")
+            details.append(L("\(report.websiteRecordsRemoved) site records"))
         }
         if report.cookiesRemoved > 0 {
-            details.append("\(report.cookiesRemoved) \(report.cookiesRemoved == 1 ? "cookie" : "cookies")")
+            details.append(L("\(report.cookiesRemoved) cookies"))
         }
         if report.closedTabCount > 0 {
-            details.append("\(report.closedTabCount) \(report.closedTabCount == 1 ? "tab" : "tabs") closed")
+            details.append(L("\(report.closedTabCount) tabs closed"))
         }
         return details.isEmpty ? nil : details.joined(separator: " · ")
     }
@@ -163,10 +169,10 @@ struct ClearBrowsingDataSheet: View {
                                 .background(profileTokens.accentSubtleFill, in: Circle())
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Profile: \(resolvedProfile.name)")
+                                Text(L("Profile: \(resolvedProfile.localizedDisplayName)"))
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.primary)
-                                Text("Downloads Vault and other profiles remain untouched.")
+                                Text(L("Downloads Vault and other profiles remain untouched."))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -203,10 +209,10 @@ struct ClearBrowsingDataSheet: View {
 
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Total Reclaimable Storage")
+                            Text(L("Total Reclaimable Storage"))
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
-                            Text("SQLite, WebKit caches, favicons & staging")
+                            Text(L("SQLite, WebKit caches, favicons & staging"))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -230,19 +236,19 @@ struct ClearBrowsingDataSheet: View {
                     .padding(.vertical, 2)
 
                     footprintBreakdownRow(
-                        title: "History Database (SQLite)",
+                        title: L("History Database (SQLite)"),
                         bytes: footprint?.historySQLiteBytes
                     )
                     footprintBreakdownRow(
-                        title: "WebKit Cache & Storage",
+                        title: L("WebKit Cache & Storage"),
                         bytes: footprint?.webKitCacheBytes
                     )
                     footprintBreakdownRow(
-                        title: "Favicon Cache",
+                        title: L("Favicon Cache"),
                         bytes: footprint?.faviconCacheBytes
                     )
                     footprintBreakdownRow(
-                        title: "Staging & Temp Files",
+                        title: L("Staging & Temp Files"),
                         bytes: footprint?.stagingTempBytes
                     )
 
@@ -255,14 +261,14 @@ struct ClearBrowsingDataSheet: View {
                         }
                     } label: {
                         HStack(spacing: 10) {
-                            Label("Manage Website Data", systemImage: "globe")
+                            Label(L("Manage Website Data"), systemImage: "globe")
                                 .symbolRenderingMode(.monochrome)
                                 .foregroundStyle(.primary)
 
                             Spacer(minLength: 8)
 
                             if let count = footprint?.websiteDomainCount {
-                                Text("\(count) \(count == 1 ? "site" : "sites")")
+                                Text(L("\(count) sites"))
                                     .font(.caption.monospacedDigit().weight(.semibold))
                                     .foregroundStyle(.secondary)
                                     .padding(.horizontal, 8)
@@ -277,14 +283,14 @@ struct ClearBrowsingDataSheet: View {
                     }
                     .accessibilityIdentifier("clear-data-manage-website-data-link")
                 } header: {
-                    Text("Storage Footprint")
+                    Text(L("Storage Footprint"))
                 } footer: {
-                    Text("Measured live from local disk. Inspect or remove cookies, storage, and caches per site.")
+                    Text(L("Measured live from local disk. Inspect or remove cookies, storage, and caches per site."))
                 }
 
                 // 2. Timeframe
                 Section {
-                    Picker("Time Range", selection: $selectedPreset) {
+                    Picker(L("Time Range"), selection: $selectedPreset) {
                         ForEach(BrowsingClearTimePreset.allCases) { preset in
                             Text(preset.title).tag(preset)
                         }
@@ -292,28 +298,32 @@ struct ClearBrowsingDataSheet: View {
 
                     if selectedPreset == .customWheel {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Clear Everything Since")
+                            Text(L("Clear Everything Since"))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
 
                             DatePicker(
-                                "Clear Since",
+                                L("Clear Since"),
                                 selection: $customCutoffDate,
                                 in: ...Date(),
                                 displayedComponents: [.date, .hourAndMinute]
                             )
                             .datePickerStyle(.wheel)
                             .labelsHidden()
+                            .environment(\.locale, AppLocalization.currentLocale)
                             .frame(maxWidth: .infinity)
                         }
                     }
                 } header: {
-                    Text("Timeframe")
+                    Text(L("Timeframe"))
                 } footer: {
                     if selectedPreset == .allTime {
-                        Text("Applies across your entire local browsing history and website storage.")
+                        Text(L("Applies across your entire local browsing history and website storage."))
                     } else {
-                        Text("Only records and cached data created after \(activeCutoffDate.formatted(date: .abbreviated, time: .shortened)) will be removed.")
+                        let formattedCutoff = activeCutoffDate.formatted(
+                            Date.FormatStyle(date: .abbreviated, time: .shortened, locale: AppLocalization.currentLocale)
+                        )
+                        Text(L("Only records and cached data created after \(formattedCutoff) will be removed."))
                     }
                 }
 
@@ -322,9 +332,9 @@ struct ClearBrowsingDataSheet: View {
                     Toggle(isOn: $includeHistory) {
                         clearScopeRowLabel(
                             icon: "clock.arrow.circlepath",
-                            title: "Browsing History",
+                            title: L("Browsing History"),
                             badge: "\(matchingHistoryCount)",
-                            subtitle: "Deletes SQLite history rows and runs VACUUM + WAL truncation to reclaim disk pages.",
+                            subtitle: L("Deletes SQLite history rows and runs VACUUM + WAL truncation to reclaim disk pages."),
                             isDestructiveWarning: false
                         )
                     }
@@ -332,9 +342,9 @@ struct ClearBrowsingDataSheet: View {
                     Toggle(isOn: $includeCache) {
                         clearScopeRowLabel(
                             icon: "internaldrive",
-                            title: "Cached Images & Files",
+                            title: L("Cached Images & Files"),
                             badge: nil,
-                            subtitle: "Clears WebKit disk, memory & Fetch cache, favicons, and orphaned staging/temp files without signing you out.",
+                            subtitle: L("Clears WebKit disk, memory & Fetch cache, favicons, and orphaned staging/temp files without signing you out."),
                             isDestructiveWarning: false
                         )
                     }
@@ -342,9 +352,9 @@ struct ClearBrowsingDataSheet: View {
                     Toggle(isOn: $includeCookiesAndSessions) {
                         clearScopeRowLabel(
                             icon: "key.slash",
-                            title: "Cookies & Login Sessions",
+                            title: L("Cookies & Login Sessions"),
                             badge: nil,
-                            subtitle: "Clears cookies, HttpOnly tokens, LocalStorage, SessionStorage, IndexedDB, Service Workers, and persisted transfer auth cookies — signs you out of websites.",
+                            subtitle: L("Clears cookies, HttpOnly tokens, LocalStorage, SessionStorage, IndexedDB, Service Workers, and persisted transfer auth cookies — signs you out of websites."),
                             isDestructiveWarning: includeCookiesAndSessions
                         )
                     }
@@ -352,18 +362,18 @@ struct ClearBrowsingDataSheet: View {
                     Toggle(isOn: $closeStandardTabs) {
                         clearScopeRowLabel(
                             icon: "xmark.square",
-                            title: "Close Open Tabs (\(standardTabCount))",
+                            title: L("Close Open Tabs (\(standardTabCount))"),
                             badge: nil,
                             subtitle: browserStore.isMultiProfileEnabled
-                                ? "Closes all open tabs in \(resolvedProfile.name), clears its recently closed tabs, and resets back/forward history."
-                                : "Closes all standard tabs, clears recently closed tabs, and resets back/forward history.",
+                                ? L("Closes all open tabs in \(resolvedProfile.localizedDisplayName), clears its recently closed tabs, and resets back/forward history.")
+                                : L("Closes all standard tabs, clears recently closed tabs, and resets back/forward history."),
                             isDestructiveWarning: false
                         )
                     }
                 } header: {
-                    Text("What Gets Cleared")
+                    Text(L("What Gets Cleared"))
                 } footer: {
-                    Text("Favorites, folders, and downloaded files in your Vault are never touched.")
+                    Text(L("Favorites, folders, and downloaded files in your Vault are never touched."))
                 }
 
                 // 4. Destructive Execution
@@ -377,7 +387,7 @@ struct ClearBrowsingDataSheet: View {
                                 ProgressView()
                                     .padding(.trailing, 6)
                             }
-                            Text(isExecutingClear ? "Clearing Storage…" : "Clear Selected Data…")
+                            Text(isExecutingClear ? L("Clearing Storage…") : L("Clear Selected Data…"))
                                 .fontWeight(.semibold)
                             Spacer()
                         }
@@ -388,7 +398,7 @@ struct ClearBrowsingDataSheet: View {
             }
             .listStyle(.insetGrouped)
             .listSectionSpacing(DysprosiumTokens.Space.sectionSpacing)
-            .navigationTitle("Clear Browsing Data")
+            .navigationTitle(L("Clear Browsing Data"))
             .navigationBarTitleDisplayMode(.inline)
             .task {
                 await reloadFootprint()
@@ -402,7 +412,7 @@ struct ClearBrowsingDataSheet: View {
                         dismiss()
                     } label: {
                         Label(
-                            lastClearReport != nil ? "Done" : "Cancel",
+                            lastClearReport != nil ? L("Done") : L("Cancel"),
                             systemImage: lastClearReport != nil ? "checkmark" : "xmark"
                         )
                     }
@@ -410,12 +420,12 @@ struct ClearBrowsingDataSheet: View {
             }
             .confirmationDialog(
                 browserStore.isMultiProfileEnabled
-                    ? "Clear \(confirmationSummaryText) in \(resolvedProfile.name)?"
-                    : "Clear \(confirmationSummaryText)?",
+                    ? L("Clear \(confirmationSummaryText) in \(resolvedProfile.localizedDisplayName)?")
+                    : L("Clear \(confirmationSummaryText)?"),
                 isPresented: $isConfirmingClear,
                 titleVisibility: .visible
             ) {
-                Button("Clear Now (\(selectedPreset.title))", role: .destructive) {
+                Button(L("Clear Now (\(selectedPreset.title))"), role: .destructive) {
                     isExecutingClear = true
                     let cutoff = activeCutoffDate
                     let opts = CleanroomBrowserStore.BrowsingClearOptions(
@@ -438,12 +448,12 @@ struct ClearBrowsingDataSheet: View {
                         }
                     }
                 }
-                Button("Cancel", role: .cancel) {}
+                Button(L("Cancel"), role: .cancel) {}
             } message: {
                 if includeCookiesAndSessions {
-                    Text("This cannot be undone and will sign you out of active website sessions.")
+                    Text(L("This cannot be undone and will sign you out of active website sessions."))
                 } else {
-                    Text("This action cannot be undone. Active website login sessions will be preserved.")
+                    Text(L("This action cannot be undone. Active website login sessions will be preserved."))
                 }
             }
         }
@@ -571,7 +581,7 @@ struct WebsiteDataManagerView: View {
                     HStack(spacing: 10) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Scanning website data…")
+                        Text(L("Scanning website data…"))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -580,9 +590,9 @@ struct WebsiteDataManagerView: View {
             } else if domains.isEmpty {
                 Section {
                     ContentUnavailableView(
-                        "No Website Data",
+                        L("No Website Data"),
                         systemImage: "checkmark.shield",
-                        description: Text("No sites currently hold cookies, web storage, caches, or service workers.")
+                        description: Text(L("No sites currently hold cookies, web storage, caches, or service workers."))
                     )
                     .padding(.vertical, 12)
                 }
@@ -597,7 +607,7 @@ struct WebsiteDataManagerView: View {
                                     Button(role: .destructive) {
                                         removeSingleDomain(domain)
                                     } label: {
-                                        Label("Delete", systemImage: "trash")
+                                        Label(L("Delete"), systemImage: "trash")
                                     }
                                     .tint(tokens.statusDanger)
                                 }
@@ -605,23 +615,23 @@ struct WebsiteDataManagerView: View {
                                     Button(role: .destructive) {
                                         removeSingleDomain(domain)
                                     } label: {
-                                        Label("Remove Site Data", systemImage: "trash")
+                                        Label(L("Remove Site Data"), systemImage: "trash")
                                     }
                                 }
                         }
                     }
                 } header: {
                     HStack {
-                        Text("Websites (\(filteredDomains.count))")
+                        Text(L("Websites (\(filteredDomains.count))"))
                         Spacer()
                         if !searchQuery.isEmpty {
-                            Text("of \(domains.count)")
+                            Text(L("of \(domains.count)"))
                                 .foregroundStyle(.secondary)
                         }
                     }
                     .font(.caption.monospacedDigit())
                 } footer: {
-                    Text("Swipe left on any site to purge its WebKit records, HttpOnly cookies, cached favicon, and live tab storage.")
+                    Text(L("Swipe left on any site to purge its WebKit records, HttpOnly cookies, cached favicon, and live tab storage."))
                 }
 
                 Section {
@@ -634,7 +644,7 @@ struct WebsiteDataManagerView: View {
                                 ProgressView()
                                     .padding(.trailing, 6)
                             }
-                            Text(isRemovingAll ? "Removing All Website Data…" : "Remove All Website Data…")
+                            Text(isRemovingAll ? L("Removing All Website Data…") : L("Remove All Website Data…"))
                                 .fontWeight(.semibold)
                             Spacer()
                         }
@@ -646,11 +656,11 @@ struct WebsiteDataManagerView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(DysprosiumTokens.Space.sectionSpacing)
-        .searchable(text: $searchQuery, prompt: "Filter websites…")
+        .searchable(text: $searchQuery, prompt: L("Filter websites…"))
         .navigationTitle(
             browserStore.isMultiProfileEnabled
-                ? "Website Data · \(resolvedProfile.name)"
-                : "Website Data"
+                ? L("Website Data · \(resolvedProfile.localizedDisplayName)")
+                : L("Website Data")
         )
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -661,20 +671,20 @@ struct WebsiteDataManagerView: View {
         }
         .confirmationDialog(
             browserStore.isMultiProfileEnabled
-                ? "Remove All Website Data in \(resolvedProfile.name)?"
-                : "Remove All Website Data?",
+                ? L("Remove All Website Data in \(resolvedProfile.localizedDisplayName)?")
+                : L("Remove All Website Data?"),
             isPresented: $isConfirmingRemoveAll,
             titleVisibility: .visible
         ) {
-            Button("Remove All (\(domains.count) \(domains.count == 1 ? "Site" : "Sites"))", role: .destructive) {
+            Button(L("Remove All (\(domains.count) sites)"), role: .destructive) {
                 removeAllDomains()
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L("Cancel"), role: .cancel) {}
         } message: {
             Text(
                 browserStore.isMultiProfileEnabled
-                    ? "Deletes all site cookies, HttpOnly login sessions, LocalStorage, caches, and service workers in \(resolvedProfile.name). Other profiles are untouched."
-                    : "Deletes all site cookies, HttpOnly login sessions, LocalStorage, caches, and service workers. This cannot be undone."
+                    ? L("Deletes all site cookies, HttpOnly login sessions, LocalStorage, caches, and service workers in \(resolvedProfile.localizedDisplayName). Other profiles are untouched.")
+                    : L("Deletes all site cookies, HttpOnly login sessions, LocalStorage, caches, and service workers. This cannot be undone.")
             )
         }
     }
@@ -694,16 +704,16 @@ struct WebsiteDataManagerView: View {
             if domain.hasCookies || hasStorage || domain.hasCache || hasWorkers {
                 HStack(spacing: 5) {
                     if domain.hasCookies {
-                        categoryTag("Cookies", foreground: targetTokens.accent, background: targetTokens.accentSubtleFill)
+                        categoryTag(L("Cookies"), foreground: targetTokens.accent, background: targetTokens.accentSubtleFill)
                     }
                     if hasStorage {
-                        categoryTag("Storage", foreground: .primary, background: Color(.tertiarySystemFill))
+                        categoryTag(L("Storage"), foreground: .primary, background: Color(.tertiarySystemFill))
                     }
                     if domain.hasCache {
-                        categoryTag("Cache", foreground: .secondary, background: Color(.tertiarySystemFill))
+                        categoryTag(L("Cache"), foreground: .secondary, background: Color(.tertiarySystemFill))
                     }
                     if hasWorkers {
-                        categoryTag("Workers", foreground: tokens.privateAccent, background: tokens.privateSubtleFill)
+                        categoryTag(L("Workers"), foreground: tokens.privateAccent, background: tokens.privateSubtleFill)
                     }
                 }
             }

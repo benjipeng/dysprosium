@@ -25,13 +25,13 @@ struct BrowserStartPageView: View {
 
         var label: String {
             switch self {
-            case .all: return "All"
-            case .past24Hours: return "24h"
-            case .today: return "Today"
-            case .yesterday: return "Yesterday"
-            case .past7Days: return "7 Days"
-            case .past30Days: return "30 Days"
-            case .specificDate: return "Date"
+            case .all: return L("All")
+            case .past24Hours: return L("24h")
+            case .today: return L("Today")
+            case .yesterday: return L("Yesterday")
+            case .past7Days: return L("7 Days")
+            case .past30Days: return L("30 Days")
+            case .specificDate: return L("Date")
             }
         }
 
@@ -140,18 +140,6 @@ struct BrowserStartPageView: View {
     @State private var earliestHistoryDate: Date = Date().addingTimeInterval(-365 * 86_400)
     @State private var historyReloadGeneration: Int = 0
 
-    private static let visitTimeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f
-    }()
-
-    private static let pickedChipFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f
-    }()
-
     private var session: CleanroomWebKitSession {
         browserStore.activeSession
     }
@@ -226,11 +214,11 @@ struct BrowserStartPageView: View {
 
                     if virtualRows.isEmpty {
                         VStack(spacing: 6) {
-                            Text("No visits in this time range.")
+                            Text(L("No visits in this time range."))
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.secondary)
                             if timeScope != .all || !historyQuery.isEmpty {
-                                Button("Show All History") {
+                                Button(L("Show All History")) {
                                     timeScope = .all
                                     historyQuery = ""
                                 }
@@ -321,9 +309,9 @@ struct BrowserStartPageView: View {
         .sheet(isPresented: $isShowingDateWheelPopover) {
             historyDateWheelPickerSheet
         }
-        .alert("New Folder", isPresented: $isCreatingFolderAlert) {
-            TextField("Folder Name", text: $newFolderName)
-            Button("Create") {
+        .alert(L("New Folder"), isPresented: $isCreatingFolderAlert) {
+            TextField(L("Folder Name"), text: $newFolderName)
+            Button(L("Create")) {
                 if let created = browserStore.createFolder(title: newFolderName),
                    let moveID = pendingBookmarkIDForNewFolder {
                     browserStore.moveBookmark(id: moveID, toFolderID: created.id)
@@ -331,27 +319,27 @@ struct BrowserStartPageView: View {
                 newFolderName = ""
                 pendingBookmarkIDForNewFolder = nil
             }
-            Button("Cancel", role: .cancel) {
+            Button(L("Cancel"), role: .cancel) {
                 newFolderName = ""
                 pendingBookmarkIDForNewFolder = nil
             }
         }
         .alert(
-            "Rename Folder",
+            L("Rename Folder"),
             isPresented: Binding(
                 get: { renamingFolder != nil },
                 set: { if !$0 { renamingFolder = nil } }
             )
         ) {
-            TextField("Folder Name", text: $renameFolderText)
-            Button("Save") {
+            TextField(L("Folder Name"), text: $renameFolderText)
+            Button(L("Save")) {
                 if let folder = renamingFolder {
                     browserStore.renameFolder(id: folder.id, title: renameFolderText)
                 }
                 renamingFolder = nil
                 renameFolderText = ""
             }
-            Button("Cancel", role: .cancel) {
+            Button(L("Cancel"), role: .cancel) {
                 renamingFolder = nil
                 renameFolderText = ""
             }
@@ -366,8 +354,8 @@ struct BrowserStartPageView: View {
         ) { result in
             handleBookmarksImportResult(result)
         }
-        .alert("Bookmarks Import", isPresented: $isShowingImportResultAlert) {
-            Button("OK", role: .cancel) {}
+        .alert(L("Bookmarks Import"), isPresented: $isShowingImportResultAlert) {
+            Button(L("OK"), role: .cancel) {}
         } message: {
             Text(importResultMessage)
         }
@@ -388,26 +376,27 @@ struct BrowserStartPageView: View {
     private var historyDateWheelPickerSheet: some View {
         NavigationStack {
             VStack(spacing: 12) {
-                Text("Roll to inspect browsing history on a specific date")
+                Text(L("Roll to inspect browsing history on a specific date"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.top, 8)
 
                 DatePicker(
-                    "History Date",
+                    L("History Date"),
                     selection: $pickedDate,
                     in: earliestHistoryDate...Date(),
                     displayedComponents: [.date]
                 )
                 .datePickerStyle(.wheel)
                 .labelsHidden()
+                .environment(\.locale, AppLocalization.currentLocale)
                 .frame(maxWidth: .infinity)
 
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
             .background(Color(.systemGroupedBackground))
-            .navigationTitle("Jump to Date")
+            .navigationTitle(L("Jump to Date"))
             .navigationBarTitleDisplayMode(.inline)
             .task {
                 let store = browserStore.historyStore
@@ -422,18 +411,18 @@ struct BrowserStartPageView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     if timeScope == .specificDate {
-                        Button("Reset") {
+                        Button(L("Reset")) {
                             timeScope = .all
                             isShowingDateWheelPopover = false
                         }
                     } else {
-                        Button("Cancel") {
+                        Button(L("Cancel")) {
                             isShowingDateWheelPopover = false
                         }
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Show Day") {
+                    Button(L("Show Day")) {
                         timeScope = .specificDate
                         reloadHistoryFirstPage()
                         isShowingDateWheelPopover = false
@@ -554,8 +543,8 @@ struct BrowserStartPageView: View {
             let summary = summaryByYMD[ymd] ?? BrowserHistoryDaySummary(
                 dayYMD: ymd,
                 dayStart: BrowserSQLiteStore.date(fromDayYMD: ymd),
-                displayTitle: "Earlier",
-                chipTitle: "Earlier",
+                displayTitle: L("Earlier"),
+                chipTitle: L("Earlier"),
                 count: items.count
             )
             rows.append(.dayHeader(summary, topSpacing: dayIdx == 0 ? 4 : 12))
@@ -634,7 +623,7 @@ struct BrowserStartPageView: View {
             HStack(spacing: 8) {
                 ProgressView()
                     .controlSize(.small)
-                Text("Loading older history…")
+                Text(L("Loading older history…"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -657,7 +646,7 @@ struct BrowserStartPageView: View {
                 .frame(width: 28, height: 28)
                 .background(tokens.privateAccent.opacity(0.14), in: Circle())
 
-            Text("Private Browsing — History, cookies, and site data are not saved in this tab.")
+            Text(L("Private Browsing — History, cookies, and site data are not saved in this tab."))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -760,7 +749,7 @@ struct BrowserStartPageView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
                             .font(.subheadline.weight(.semibold))
-                        Text("Favorites")
+                        Text(L("Favorites"))
                             .font(.subheadline.weight(.medium))
                     }
                     .foregroundStyle(tokens.accent)
@@ -781,7 +770,7 @@ struct BrowserStartPageView: View {
                 Button {
                     editorTarget = .create(defaultFolderID: folder.id)
                 } label: {
-                    Label("Add", systemImage: "plus")
+                    Label(L("Add"), systemImage: "plus")
                         .symbolRenderingMode(.monochrome)
                         .font(.subheadline.weight(.semibold))
                         .labelStyle(.iconOnly)
@@ -790,7 +779,7 @@ struct BrowserStartPageView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(tokens.accent)
-                .accessibilityLabel("Add Favorite to \(folder.title)")
+                .accessibilityLabel(L("Add Favorite to \(folder.title)"))
 
                 Menu {
                     let folderItems = browserStore.bookmarks(inFolder: folder.id)
@@ -798,14 +787,14 @@ struct BrowserStartPageView: View {
                         Button {
                             openAllBookmarks(folderItems, isPrivate: false)
                         } label: {
-                            Label("Open All in Tabs (\(folderItems.count))", systemImage: "plus.square.on.square")
+                            Label(L("Open All in Tabs (\(folderItems.count))"), systemImage: "plus.square.on.square")
                         }
                     }
                     Button {
                         renameFolderText = folder.title
                         renamingFolder = folder
                     } label: {
-                        Label("Rename Folder…", systemImage: "pencil")
+                        Label(L("Rename Folder…"), systemImage: "pencil")
                     }
                     Divider()
                     Button {
@@ -813,14 +802,14 @@ struct BrowserStartPageView: View {
                         activeFolderID = nil
                         browserStore.deleteFolder(id: id, keepBookmarks: true)
                     } label: {
-                        Label("Ungroup Folder (Keep Sites)", systemImage: "folder.badge.minus")
+                        Label(L("Ungroup Folder (Keep Sites)"), systemImage: "folder.badge.minus")
                     }
                     Button(role: .destructive) {
                         let id = folder.id
                         activeFolderID = nil
                         browserStore.deleteFolder(id: id, keepBookmarks: false)
                     } label: {
-                        Label("Delete Folder & Contents", systemImage: "trash")
+                        Label(L("Delete Folder & Contents"), systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -830,9 +819,9 @@ struct BrowserStartPageView: View {
                         .frame(width: 28, height: 28)
                         .background(Color(.secondarySystemGroupedBackground), in: Circle())
                 }
-                .accessibilityLabel("Folder Options")
+                .accessibilityLabel(L("Folder Options"))
             } else {
-                Text("Favorites")
+                Text(L("Favorites"))
                     .font(.headline)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -847,7 +836,7 @@ struct BrowserStartPageView: View {
                             Image(systemName: activeProfile.symbolName)
                                 .symbolRenderingMode(.monochrome)
                                 .font(.caption2.weight(.semibold))
-                            Text(activeProfile.name)
+                            Text(activeProfile.localizedDisplayName)
                                 .font(.caption.weight(.semibold))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -862,8 +851,8 @@ struct BrowserStartPageView: View {
                         .background(Color(.secondarySystemGroupedBackground), in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Favorites Profile: \(activeProfile.name)")
-                    .accessibilityHint("Switch profile")
+                    .accessibilityLabel(L("Favorites Profile: \(activeProfile.localizedDisplayName)"))
+                    .accessibilityHint(L("Switch profile"))
                     .accessibilityIdentifier("startpage-profile-switcher")
                 }
 
@@ -875,7 +864,7 @@ struct BrowserStartPageView: View {
                     isCreatingFolderAlert = true
                 } label: {
                     if !isWideCanvas && browserStore.isMultiProfileEnabled {
-                        Label("New Folder", systemImage: "folder.badge.plus")
+                        Label(L("New Folder"), systemImage: "folder.badge.plus")
                             .symbolRenderingMode(.monochrome)
                             .labelStyle(.iconOnly)
                             .font(.caption.weight(.semibold))
@@ -886,7 +875,7 @@ struct BrowserStartPageView: View {
                         HStack(spacing: 4) {
                             Image(systemName: "folder.badge.plus")
                                 .symbolRenderingMode(.monochrome)
-                            Text("New Folder")
+                            Text(L("New Folder"))
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
                         }
@@ -898,7 +887,7 @@ struct BrowserStartPageView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("New Folder")
+                .accessibilityLabel(L("New Folder"))
 
                 Button {
                     editorTarget = .create(defaultFolderID: nil)
@@ -906,7 +895,7 @@ struct BrowserStartPageView: View {
                     HStack(spacing: 3) {
                         Image(systemName: "plus")
                             .symbolRenderingMode(.monochrome)
-                        Text("Add")
+                        Text(L("Add"))
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
                     }
@@ -922,14 +911,14 @@ struct BrowserStartPageView: View {
                     Button {
                         exportBookmarks(asHTML: true)
                     } label: {
-                        Label("Export Bookmarks (HTML)…", systemImage: "square.and.arrow.up")
+                        Label(L("Export Bookmarks (HTML)…"), systemImage: "square.and.arrow.up")
                     }
                     .disabled(browserStore.bookmarks.isEmpty && browserStore.favoriteFolders.isEmpty)
 
                     Button {
                         exportBookmarks(asHTML: false)
                     } label: {
-                        Label("Export Bookmarks (JSON)…", systemImage: "curlybraces")
+                        Label(L("Export Bookmarks (JSON)…"), systemImage: "curlybraces")
                     }
                     .disabled(browserStore.bookmarks.isEmpty && browserStore.favoriteFolders.isEmpty)
 
@@ -938,7 +927,7 @@ struct BrowserStartPageView: View {
                     Button {
                         isImportingBookmarks = true
                     } label: {
-                        Label("Import Bookmarks…", systemImage: "square.and.arrow.down")
+                        Label(L("Import Bookmarks…"), systemImage: "square.and.arrow.down")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -948,7 +937,7 @@ struct BrowserStartPageView: View {
                         .frame(width: 28, height: 28)
                         .background(Color(.secondarySystemGroupedBackground), in: Circle())
                 }
-                .accessibilityLabel("Bookmarks Options")
+                .accessibilityLabel(L("Bookmarks Options"))
                 .accessibilityIdentifier("favorites-options-menu")
             }
         }
@@ -961,13 +950,13 @@ struct BrowserStartPageView: View {
                 .font(.title3)
                 .foregroundStyle(.secondary)
 
-            Text(activeFolder == nil ? "No favorites saved yet." : "This folder is empty.")
+            Text(activeFolder == nil ? L("No favorites saved yet.") : L("This folder is empty."))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             Spacer()
 
-            Button("Add Site") {
+            Button(L("Add Site")) {
                 editorTarget = .create(defaultFolderID: activeFolderID)
             }
             .font(.caption.weight(.semibold))
@@ -1003,42 +992,42 @@ struct BrowserStartPageView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(folder.title) folder, \(items.count) sites")
+        .accessibilityLabel(L("\(folder.title) folder, \(items.count) sites"))
         .contextMenu {
             if !items.isEmpty {
                 Button {
                     openAllBookmarks(items, isPrivate: false)
                 } label: {
-                    Label("Open All in Tabs (\(items.count))", systemImage: "plus.square.on.square")
+                    Label(L("Open All in Tabs (\(items.count))"), systemImage: "plus.square.on.square")
                 }
                 Button {
                     openAllBookmarks(items, isPrivate: true)
                 } label: {
-                    Label("Open All in Private Tabs", systemImage: "hand.raised")
+                    Label(L("Open All in Private Tabs"), systemImage: "hand.raised")
                 }
                 Divider()
             }
             Button {
                 editorTarget = .create(defaultFolderID: folder.id)
             } label: {
-                Label("Add Site to Folder…", systemImage: "plus")
+                Label(L("Add Site to Folder…"), systemImage: "plus")
             }
             Button {
                 renameFolderText = folder.title
                 renamingFolder = folder
             } label: {
-                Label("Rename Folder…", systemImage: "pencil")
+                Label(L("Rename Folder…"), systemImage: "pencil")
             }
             Divider()
             Button {
                 browserStore.deleteFolder(id: folder.id, keepBookmarks: true)
             } label: {
-                Label("Ungroup Folder (Keep Sites)", systemImage: "folder.badge.minus")
+                Label(L("Ungroup Folder (Keep Sites)"), systemImage: "folder.badge.minus")
             }
             Button(role: .destructive) {
                 browserStore.deleteFolder(id: folder.id, keepBookmarks: false)
             } label: {
-                Label("Delete Folder & Contents", systemImage: "trash")
+                Label(L("Delete Folder & Contents"), systemImage: "trash")
             }
         }
     }
@@ -1066,18 +1055,18 @@ struct BrowserStartPageView: View {
                 browserStore.openNewTab(urlString: bm.urlString, isPrivate: false, activate: true)
                 onDismissContainer?()
             } label: {
-                Label("Open in New Tab", systemImage: "plus.square")
+                Label(L("Open in New Tab"), systemImage: "plus.square")
             }
             Button {
                 browserStore.openNewTab(urlString: bm.urlString, isPrivate: false, activate: false)
             } label: {
-                Label("Open in Background Tab", systemImage: "plus.square.on.square")
+                Label(L("Open in Background Tab"), systemImage: "plus.square.on.square")
             }
             Button {
                 browserStore.openNewTab(urlString: bm.urlString, isPrivate: true, activate: true)
                 onDismissContainer?()
             } label: {
-                Label("Open in Private Tab", systemImage: "hand.raised")
+                Label(L("Open in Private Tab"), systemImage: "hand.raised")
             }
 
             Divider()
@@ -1086,7 +1075,7 @@ struct BrowserStartPageView: View {
                 Button {
                     browserStore.moveBookmark(id: bm.id, toFolderID: nil)
                 } label: {
-                    Label("Favorites (Root)", systemImage: bm.folderID == nil ? "checkmark" : "star")
+                    Label(L("Favorites (Root)"), systemImage: bm.folderID == nil ? "checkmark" : "star")
                 }
                 ForEach(browserStore.favoriteFolders) { folder in
                     Button {
@@ -1101,16 +1090,16 @@ struct BrowserStartPageView: View {
                     newFolderName = ""
                     isCreatingFolderAlert = true
                 } label: {
-                    Label("New Folder with Site…", systemImage: "folder.badge.plus")
+                    Label(L("New Folder with Site…"), systemImage: "folder.badge.plus")
                 }
             } label: {
-                Label("Move to Folder", systemImage: "folder")
+                Label(L("Move to Folder"), systemImage: "folder")
             }
 
             Button {
                 editorTarget = .edit(bm)
             } label: {
-                Label("Edit…", systemImage: "pencil")
+                Label(L("Edit…"), systemImage: "pencil")
             }
 
             Divider()
@@ -1118,7 +1107,7 @@ struct BrowserStartPageView: View {
             Button(role: .destructive) {
                 browserStore.removeBookmark(id: bm.id)
             } label: {
-                Label("Remove Favorite", systemImage: "trash")
+                Label(L("Remove Favorite"), systemImage: "trash")
             }
         }
     }
@@ -1168,15 +1157,13 @@ struct BrowserStartPageView: View {
                 }.value
                 if let loadedData {
                     let importedCount = browserStore.importBookmarks(from: loadedData)
-                    if importedCount == 1 {
-                        importResultMessage = "Imported 1 bookmark."
-                    } else if importedCount > 1 {
-                        importResultMessage = "Imported \(importedCount) bookmarks."
+                    if importedCount > 0 {
+                        importResultMessage = L("Imported \(importedCount) bookmarks.")
                     } else {
-                        importResultMessage = "No new bookmarks found in this file."
+                        importResultMessage = L("No new bookmarks found in this file.")
                     }
                 } else {
-                    importResultMessage = "Could not read the selected bookmarks file."
+                    importResultMessage = L("Could not read the selected bookmarks file.")
                 }
                 isShowingImportResultAlert = true
             }
@@ -1191,7 +1178,7 @@ struct BrowserStartPageView: View {
     private var historyControlsHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Text("History")
+                Text(L("History"))
                     .font(.headline)
                     .foregroundStyle(.primary)
 
@@ -1210,7 +1197,7 @@ struct BrowserStartPageView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "trash")
                             .symbolRenderingMode(.monochrome)
-                        Text("Clear…")
+                        Text(L("Clear…"))
                     }
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -1228,7 +1215,7 @@ struct BrowserStartPageView: View {
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(.secondary)
 
-                TextField("Filter history by title or site…", text: $historyQuery)
+                TextField(L("Filter history by title or site…"), text: $historyQuery)
                     .font(.subheadline)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -1243,7 +1230,7 @@ struct BrowserStartPageView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Clear History Filter")
+                    .accessibilityLabel(L("Clear History Filter"))
                 }
             }
             .padding(.horizontal, 11)
@@ -1282,7 +1269,11 @@ struct BrowserStartPageView: View {
                             Image(systemName: "calendar")
                                 .symbolRenderingMode(.monochrome)
                                 .font(.caption2.weight(.semibold))
-                            Text(isCustomDateActive ? Self.pickedChipFormatter.string(from: pickedDate) : "Date…")
+                            Text(
+                                isCustomDateActive
+                                    ? pickedDate.formatted(.dateTime.month(.abbreviated).day().locale(AppLocalization.currentLocale))
+                                    : L("Date…")
+                            )
                                 .font(.caption.weight(.semibold))
                         }
                         .foregroundStyle(isCustomDateActive ? tokens.onAccent : .primary)
@@ -1294,7 +1285,7 @@ struct BrowserStartPageView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Pick Specific History Date")
+                    .accessibilityLabel(L("Pick Specific History Date"))
                 }
             }
         }
@@ -1318,7 +1309,7 @@ struct BrowserStartPageView: View {
                             Text(item.displayHost)
                                 .lineLimit(1)
                             Text("·")
-                            Text(Self.visitTimeFormatter.string(from: item.visitedAt))
+                            Text(item.visitedAt.formatted(.dateTime.hour().minute().locale(AppLocalization.currentLocale)))
                                 .monospacedDigit()
                         }
                         .font(.caption)
@@ -1342,7 +1333,7 @@ struct BrowserStartPageView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(item.title) from history")
+            .accessibilityLabel(L("Remove \(item.title) from history"))
         }
         .padding(.leading, 10)
         .padding(.trailing, 8)
@@ -1356,35 +1347,35 @@ struct BrowserStartPageView: View {
                 browserStore.openNewTab(urlString: item.urlString, isPrivate: false, activate: true)
                 onDismissContainer?()
             } label: {
-                Label("Open in New Tab", systemImage: "plus.square")
+                Label(L("Open in New Tab"), systemImage: "plus.square")
             }
             Button {
                 browserStore.openNewTab(urlString: item.urlString, isPrivate: false, activate: false)
             } label: {
-                Label("Open in Background Tab", systemImage: "plus.square.on.square")
+                Label(L("Open in Background Tab"), systemImage: "plus.square.on.square")
             }
             Button {
                 browserStore.openNewTab(urlString: item.urlString, isPrivate: true, activate: true)
                 onDismissContainer?()
             } label: {
-                Label("Open in Private Tab", systemImage: "hand.raised")
+                Label(L("Open in Private Tab"), systemImage: "hand.raised")
             }
             Divider()
             Button {
                 editorTarget = .prefilled(title: item.title, urlString: item.urlString, defaultFolderID: activeFolderID)
             } label: {
-                Label("Add to Favorites…", systemImage: "star")
+                Label(L("Add to Favorites…"), systemImage: "star")
             }
             Button {
                 UIPasteboard.general.string = item.urlString
             } label: {
-                Label("Copy Link", systemImage: "doc.on.doc")
+                Label(L("Copy Link"), systemImage: "doc.on.doc")
             }
             Divider()
             Button(role: .destructive) {
                 browserStore.removeHistoryEntry(id: item.id)
             } label: {
-                Label("Delete from History", systemImage: "trash")
+                Label(L("Delete from History"), systemImage: "trash")
             }
         }
     }
@@ -1425,17 +1416,17 @@ struct FavoriteEditorSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Site Details") {
-                    TextField("Title", text: $titleInput)
+                Section(L("Site Details")) {
+                    TextField(L("Title"), text: $titleInput)
                     TextField("https://example.com", text: $urlInput)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
 
-                Section("Location") {
-                    Picker("Folder", selection: $selectedFolderID) {
-                        Label("Favorites (Root)", systemImage: "star")
+                Section(L("Location")) {
+                    Picker(L("Folder"), selection: $selectedFolderID) {
+                        Label(L("Favorites (Root)"), systemImage: "star")
                             .tag(Optional<String>.none)
                         ForEach(browserStore.favoriteFolders) { folder in
                             Label(folder.title, systemImage: "folder")
@@ -1445,8 +1436,8 @@ struct FavoriteEditorSheet: View {
 
                     if isCreatingInlineFolder {
                         HStack {
-                            TextField("New Folder Name", text: $inlineNewFolderName)
-                            Button("Create") {
+                            TextField(L("New Folder Name"), text: $inlineNewFolderName)
+                            Button(L("Create")) {
                                 if let folder = browserStore.createFolder(title: inlineNewFolderName) {
                                     selectedFolderID = folder.id
                                     inlineNewFolderName = ""
@@ -1459,7 +1450,7 @@ struct FavoriteEditorSheet: View {
                         Button {
                             isCreatingInlineFolder = true
                         } label: {
-                            Label("New Folder…", systemImage: "folder.badge.plus")
+                            Label(L("New Folder…"), systemImage: "folder.badge.plus")
                         }
                     }
                 }
@@ -1470,19 +1461,19 @@ struct FavoriteEditorSheet: View {
                             browserStore.removeBookmark(id: bm.id)
                             dismiss()
                         } label: {
-                            Label("Remove Favorite", systemImage: "trash")
+                            Label(L("Remove Favorite"), systemImage: "trash")
                         }
                     }
                 }
             }
-            .navigationTitle(isEditingExisting ? "Edit Favorite" : "Add Favorite")
+            .navigationTitle(isEditingExisting ? L("Edit Favorite") : L("Add Favorite"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(L("Cancel")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button(L("Save")) {
                         commitSave()
                         dismiss()
                     }

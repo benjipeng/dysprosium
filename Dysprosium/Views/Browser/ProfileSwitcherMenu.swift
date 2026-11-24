@@ -38,10 +38,10 @@ struct ProfileSwitcherMenuContent: View {
     }
 
     var body: some View {
-        Picker("Profile", selection: selectionBinding) {
+        Picker(L("Profile"), selection: selectionBinding) {
             ForEach(browserStore.profiles) { profile in
                 let count = browserStore.tabs(forProfileID: profile.id).count
-                Label("\(profile.name) (\(count))", systemImage: profile.symbolName)
+                Label(L("\(profile.localizedDisplayName) (\(count))"), systemImage: profile.symbolName)
                     .tag(profile.id)
             }
         }
@@ -52,13 +52,13 @@ struct ProfileSwitcherMenuContent: View {
 
             if let onNewProfile, browserStore.profiles.count < BrowserProfile.maxProfileCount {
                 Button(action: onNewProfile) {
-                    Label("New Profile…", systemImage: "person.crop.circle.badge.plus")
+                    Label(L("New Profile…"), systemImage: "person.crop.circle.badge.plus")
                 }
             }
 
             if let onManageProfiles {
                 Button(action: onManageProfiles) {
-                    Label("Manage Profiles…", systemImage: "person.2")
+                    Label(L("Manage Profiles…"), systemImage: "person.2")
                 }
             }
         }

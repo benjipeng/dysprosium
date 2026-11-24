@@ -8,6 +8,14 @@ public struct SniffedStreamCandidate: Identifiable, Hashable, Sendable {
         case hls = "HLS (.m3u8 → .mp4)"
         case mp4 = "Direct MP4"
         case dash = "DASH"
+
+        public var localizedTitle: String {
+            switch self {
+            case .hls: return L("HLS (.m3u8 → .mp4)")
+            case .mp4: return L("Direct MP4")
+            case .dash: return L("DASH")
+            }
+        }
     }
 
     public let id: String
@@ -816,10 +824,10 @@ public final class MediaCaptureCoordinator {
                         sortMediaGroups()
                     }
                     streamStates[taskKey] = group.isUnreachable
-                        ? .unreachable(reason: group.unreachableReason ?? "Unavailable")
+                        ? .unreachable(reason: group.unreachableReason ?? L("Unavailable"))
                         : .ready
                 } else {
-                    streamStates[taskKey] = .unreachable(reason: "Unavailable")
+                    streamStates[taskKey] = .unreachable(reason: L("Unavailable"))
                 }
                 recomputeCapturePhase()
             }
@@ -993,7 +1001,7 @@ public final class MediaCaptureCoordinator {
         pageTitle: String
     ) {
         guard !enriched.expandedVariants.isEmpty else {
-            streamStates[candidate.id] = .unreachable(reason: "Filtered")
+            streamStates[candidate.id] = .unreachable(reason: L("Filtered"))
             return
         }
 
@@ -1019,7 +1027,7 @@ public final class MediaCaptureCoordinator {
         if hasReachableVariant {
             streamStates[candidate.id] = .ready
         } else {
-            let reason = hydratedVariants.first?.probeError ?? "Unreachable"
+            let reason = hydratedVariants.first?.probeError ?? L("Unreachable")
             streamStates[candidate.id] = .unreachable(reason: reason)
         }
 

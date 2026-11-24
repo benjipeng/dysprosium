@@ -12,6 +12,15 @@ public enum LiveContainerEnvironment {
             case archive = "Archive"
             case document = "File"
 
+            public var localizedTitle: String {
+                switch self {
+                case .video: return L("Video")
+                case .audio: return L("Audio")
+                case .archive: return L("Archive")
+                case .document: return L("File")
+                }
+            }
+
             public var isPlayableVideo: Bool {
                 self == .video
             }
@@ -346,11 +355,11 @@ public enum LiveContainerEnvironment {
         }
         if isRunningInLiveContainer {
             if !isPrivateHostDocumentsLayout(), hostSharedAppGroupURL != nil {
-                return "App Storage"
+                return L("App Storage")
             }
-            return "On My iPhone › LiveContainer › Dysprosium › Downloads"
+            return L("On My iPhone › LiveContainer › Dysprosium › Downloads")
         }
-        return "On My iPhone › Dysprosium › Downloads"
+        return L("On My iPhone › Dysprosium › Downloads")
     }
 
     /// Queries free storage capacity on the active downloads volume in bytes.

@@ -20,15 +20,15 @@ public enum NativeMP4Remuxer {
         public var errorDescription: String? {
             switch self {
             case .invalidTransportStream:
-                return "Input stream does not contain valid 188-byte MPEG-TS sync packets."
+                return L("Input stream does not contain valid 188-byte MPEG-TS sync packets.")
             case .noSupportedElementaryStreams:
-                return "No H.264/HEVC video or AAC audio elementary streams found in MPEG-TS."
+                return L("No H.264/HEVC video or AAC audio elementary streams found in MPEG-TS.")
             case .formatDescriptionCreationFailed(let status):
-                return "CoreMedia format description creation failed (OSStatus \(status))."
+                return L("CoreMedia format description creation failed (OSStatus \(status)).")
             case .assetWriterInitializationFailed(let reason):
-                return "AVAssetWriter initialization failed: \(reason)"
+                return L("AVAssetWriter initialization failed: \(reason)")
             case .assetWriterFailed(let reason):
-                return "AVAssetWriter passthrough remux failed: \(reason)"
+                return L("AVAssetWriter passthrough remux failed: \(reason)")
             }
         }
     }

@@ -40,13 +40,13 @@ struct ProfileManagementSheet: View {
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack(spacing: 6) {
-                                        Text(profile.name)
+                                        Text(profile.localizedDisplayName)
                                             .font(.body.weight(.medium))
                                             .foregroundStyle(.primary)
                                             .lineLimit(1)
 
                                         if isActive {
-                                            Text("Active")
+                                            Text(L("profile.status.active"))
                                                 .font(.caption2.weight(.semibold))
                                                 .foregroundStyle(profileTokens.accent)
                                                 .padding(.horizontal, 6)
@@ -55,7 +55,9 @@ struct ProfileManagementSheet: View {
                                         }
                                     }
 
-                                    Text("\(tabCount) \(tabCount == 1 ? "tab" : "tabs") · \(favCount) \(favCount == 1 ? "favorite" : "favorites") · \(profile.userAgentProfile.shortLabel)")
+                                    let tabSummary = L("\(tabCount) tabs")
+                                    let favSummary = L("\(favCount) favorites")
+                                    Text(L("\(tabSummary) · \(favSummary) · \(profile.userAgentProfile.shortLabel)"))
                                         .font(.caption.monospacedDigit())
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
@@ -66,7 +68,7 @@ struct ProfileManagementSheet: View {
                             .padding(.vertical, 2)
                         }
                         .accessibilityIdentifier("profile-row-\(profile.name.lowercased())")
-                        .accessibilityAction(named: isActive ? "Edit \(profile.name)" : "Switch to \(profile.name)") {
+                        .accessibilityAction(named: isActive ? L("Edit \(profile.localizedDisplayName)") : L("Switch to \(profile.localizedDisplayName)")) {
                             if !isActive {
                                 browserStore.switchToProfile(id: profile.id, activateTab: true)
                                 dismiss()
@@ -78,7 +80,7 @@ struct ProfileManagementSheet: View {
                                     browserStore.switchToProfile(id: profile.id, activateTab: true)
                                     dismiss()
                                 } label: {
-                                    Label("Switch to \"\(profile.name)\"", systemImage: "arrow.left.arrow.right")
+                                    Label(L("Switch to \"\(profile.localizedDisplayName)\""), systemImage: "arrow.left.arrow.right")
                                 }
                             }
                         }
@@ -88,16 +90,16 @@ struct ProfileManagementSheet: View {
                                     browserStore.switchToProfile(id: profile.id, activateTab: true)
                                     dismiss()
                                 } label: {
-                                    Label("Switch", systemImage: "arrow.left.arrow.right")
+                                    Label(L("Switch"), systemImage: "arrow.left.arrow.right")
                                 }
                                 .tint(profileTokens.accent)
                             }
                         }
                     }
                 } header: {
-                    Text("Profiles (\(browserStore.profiles.count)/\(BrowserProfile.maxProfileCount))")
+                    Text(L("Profiles (\(browserStore.profiles.count)/\(BrowserProfile.maxProfileCount))"))
                 } footer: {
-                    Text("Each profile isolates cookies, logins, open tabs, history, favorites, per-site rules, and its own 256-bit fingerprint seed. Downloads Vault and Private Browsing stay unified.")
+                    Text(L("Each profile isolates cookies, logins, open tabs, history, favorites, per-site rules, and its own 256-bit fingerprint seed. Downloads Vault and Private Browsing stay unified."))
                 }
 
                 if browserStore.profiles.count < BrowserProfile.maxProfileCount {
@@ -105,7 +107,7 @@ struct ProfileManagementSheet: View {
                         Button {
                             isShowingCreateSheet = true
                         } label: {
-                            Label("New Profile…", systemImage: "plus.circle.fill")
+                            Label(L("New Profile…"), systemImage: "plus.circle.fill")
                                 .symbolRenderingMode(.monochrome)
                                 .font(.body.weight(.medium))
                         }
@@ -115,14 +117,14 @@ struct ProfileManagementSheet: View {
             }
             .listStyle(.insetGrouped)
             .listSectionSpacing(DysprosiumTokens.Space.sectionSpacing)
-            .navigationTitle("Profiles")
+            .navigationTitle(L("Profiles"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         dismiss()
                     } label: {
-                        Label("Done", systemImage: "checkmark")
+                        Label(L("Done"), systemImage: "checkmark")
                     }
                 }
             }
@@ -186,8 +188,18 @@ struct ProfileCreationSheet: View {
         }
     }
 
+    private static func quickChipIdentifierSlug(forSymbol symbol: String, fallbackName: String) -> String {
+        switch symbol {
+        case "briefcase.fill": return "work"
+        case "graduationcap.fill": return "study"
+        case "flask.fill": return "research"
+        case "play.rectangle.fill": return "media"
+        default: return fallbackName.lowercased()
+        }
+    }
+
     var body: some View {
-        let defaultName = browserStore.profiles.first(where: \.isDefault)?.name ?? "Personal"
+        let defaultName = browserStore.profiles.first(where: \.isDefault)?.localizedDisplayName ?? L("Personal")
         let defaultFavCount = browserStore.bookmarkCount(forProfileID: BrowserProfile.defaultID)
         NavigationStack {
             List {
@@ -204,7 +216,7 @@ struct ProfileCreationSheet: View {
                                 .foregroundStyle(previewTokens.accent)
                         }
 
-                        TextField("Profile Name (e.g. Work)", text: $name)
+                        TextField(L("Profile Name (e.g. Work)"), text: $name)
                             .font(.body.weight(.medium))
                             .textInputAutocapitalization(.words)
                             .accessibilityIdentifier("profile-create-name-field")
@@ -226,7 +238,7 @@ struct ProfileCreationSheet: View {
                     if !availableSuggestions.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
-                                ForEach(availableSuggestions, id: \.name) { suggestion in
+                                ForEach(availableSuggestions, id: \.symbol) { suggestion in
                                     Button {
                                         withAnimation(.snappy(duration: 0.2)) {
                                             name = suggestion.name
@@ -250,7 +262,7 @@ struct ProfileCreationSheet: View {
                                         .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
-                                    .accessibilityIdentifier("profile-quick-chip-\(suggestion.name.lowercased())")
+                                    .accessibilityIdentifier("profile-quick-chip-\(Self.quickChipIdentifierSlug(forSymbol: suggestion.symbol, fallbackName: suggestion.name))")
                                 }
                             }
                         }
@@ -258,15 +270,15 @@ struct ProfileCreationSheet: View {
                         .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
                     }
                 } header: {
-                    Text("Name")
+                    Text(L("Name"))
                 } footer: {
                     if browserStore.profiles.count == 1 {
-                        Text("Your existing tabs, bookmarks, and history stay in \"\(browserStore.activeProfile.name)\".")
+                        Text(L("Your existing tabs, bookmarks, and history stay in \"\(browserStore.activeProfile.localizedDisplayName)\"."))
                     }
                 }
 
                 // 2. Icon & Lanthanide Accent Palette
-                Section("Appearance") {
+                Section(L("Appearance")) {
                     ProfileSymbolPickerGrid(
                         selectedSymbol: $selectedSymbol,
                         accentColor: previewTokens.accent,
@@ -275,6 +287,7 @@ struct ProfileCreationSheet: View {
 
                     DysprosiumPaletteSelectorRows(
                         selectedPreset: selectedPalette,
+                        title: L("Accent"),
                         onSelect: { selectedPalette = $0 }
                     )
                 }
@@ -282,19 +295,19 @@ struct ProfileCreationSheet: View {
                 // 3. Favorites Bootstrap (shown only when Default Profile actually has favorites)
                 if defaultFavCount > 0 {
                     Section {
-                        Toggle("Copy Favorites from \(defaultName) (\(defaultFavCount))", isOn: $copyFavoritesFromDefault)
+                        Toggle(L("Copy Favorites from \(defaultName) (\(defaultFavCount))"), isOn: $copyFavoritesFromDefault)
                             .font(.subheadline)
                             .accessibilityIdentifier("profile-copy-favorites-toggle")
                     } header: {
-                        Text("Favorites")
+                        Text(L("Favorites"))
                     } footer: {
-                        Text("Leave off to start with a clean favorites grid for this profile.")
+                        Text(L("Leave off to start with a clean favorites grid for this profile."))
                     }
                 }
 
                 // 4. Identity & Search Defaults
                 Section {
-                    Picker("Search Engine", selection: $selectedSearchEngine) {
+                    Picker(L("Search Engine"), selection: $selectedSearchEngine) {
                         ForEach(BrowserSearchEngine.allCases) { engine in
                             Text(engine.title).tag(engine)
                         }
@@ -308,27 +321,27 @@ struct ProfileCreationSheet: View {
                             .font(.subheadline.monospaced())
                     }
 
-                    Picker("User-Agent", selection: $selectedUA) {
+                    Picker(L("User-Agent"), selection: $selectedUA) {
                         ForEach(BrowserUserAgentProfile.allCases) { ua in
                             Text(ua.title).tag(ua)
                         }
                     }
                 } header: {
-                    Text("Defaults")
+                    Text(L("Defaults"))
                 } footer: {
-                    Text("A unique 256-bit anti-fingerprinting seed and isolated WebKit cookie store are created automatically.")
+                    Text(L("A unique 256-bit anti-fingerprinting seed and isolated WebKit cookie store are created automatically."))
                 }
             }
             .listStyle(.insetGrouped)
             .listSectionSpacing(DysprosiumTokens.Space.sectionSpacing)
-            .navigationTitle("New Profile")
+            .navigationTitle(L("New Profile"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
                         dismiss()
                     } label: {
-                        Label("Cancel", systemImage: "xmark")
+                        Label(L("Cancel"), systemImage: "xmark")
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -347,7 +360,7 @@ struct ProfileCreationSheet: View {
                             onCreated?(created)
                         }
                     } label: {
-                        Label("Create", systemImage: "checkmark")
+                        Label(L("Create"), systemImage: "checkmark")
                     }
                     .fontWeight(.semibold)
                     .disabled(!canCreate)
@@ -426,7 +439,7 @@ struct ProfileEditorView: View {
                         browserStore.switchToProfile(id: profileID, activateTab: true)
                         onSwitched()
                     } label: {
-                        Label("Switch to \"\(current.name)\"", systemImage: "arrow.left.arrow.right.circle.fill")
+                        Label(L("Switch to \"\(current.localizedDisplayName)\""), systemImage: "arrow.left.arrow.right.circle.fill")
                             .symbolRenderingMode(.monochrome)
                             .font(.body.weight(.semibold))
                             .foregroundStyle(previewTokens.accent)
@@ -448,7 +461,7 @@ struct ProfileEditorView: View {
                                 .foregroundStyle(previewTokens.accent)
                         }
 
-                        TextField("Profile Name", text: $name)
+                        TextField(L("Profile Name"), text: $name)
                             .font(.body.weight(.medium))
                             .onSubmit {
                                 commitEdits(debounced: false)
@@ -471,7 +484,7 @@ struct ProfileEditorView: View {
                     }
 
                     if isNameBlank {
-                        Text("Profile name cannot be empty.")
+                        Text(L("Profile name cannot be empty."))
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
@@ -487,17 +500,18 @@ struct ProfileEditorView: View {
 
                 DysprosiumPaletteSelectorRows(
                     selectedPreset: selectedPalette,
+                    title: L("Accent"),
                     onSelect: { preset in
                         selectedPalette = preset
                         commitEdits(debounced: false)
                     }
                 )
             } header: {
-                Text("Identity")
+                Text(L("Identity"))
             }
 
-            Section("Browsing Defaults") {
-                Picker("Search Engine", selection: $selectedSearchEngine) {
+            Section(L("Browsing Defaults")) {
+                Picker(L("Search Engine"), selection: $selectedSearchEngine) {
                     ForEach(BrowserSearchEngine.allCases) { engine in
                         Text(engine.title).tag(engine)
                     }
@@ -514,7 +528,7 @@ struct ProfileEditorView: View {
                         .onChange(of: customSearchTemplate) { _, _ in commitEdits(debounced: true) }
                 }
 
-                Picker("User-Agent", selection: $selectedUA) {
+                Picker(L("User-Agent"), selection: $selectedUA) {
                     ForEach(BrowserUserAgentProfile.allCases) { ua in
                         Text(ua.title).tag(ua)
                     }
@@ -525,7 +539,7 @@ struct ProfileEditorView: View {
             Section {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Fingerprint Seed")
+                        Text(L("Fingerprint Seed"))
                             .font(.subheadline)
                         Text("\(current.shortSeedSpecimen) · \(persona.shortLabel)")
                             .font(.caption.monospaced())
@@ -538,7 +552,7 @@ struct ProfileEditorView: View {
                     Button {
                         _ = browserStore.rotateFingerprintSeed(forProfileID: profileID)
                     } label: {
-                        Label("Rotate", systemImage: "arrow.trianglehead.2.clockwise")
+                        Label(L("Rotate"), systemImage: "arrow.trianglehead.2.clockwise")
                             .font(.caption.weight(.semibold))
                             .symbolRenderingMode(.monochrome)
                     }
@@ -550,14 +564,14 @@ struct ProfileEditorView: View {
                 Button {
                     isShowingClearDataSheet = true
                 } label: {
-                    Label("Website Data & Storage…", systemImage: "internaldrive")
+                    Label(L("Website Data & Storage…"), systemImage: "internaldrive")
                         .symbolRenderingMode(.monochrome)
                 }
             } header: {
-                Text("Privacy & Storage")
+                Text(L("Privacy & Storage"))
             } footer: {
                 if current.isDefault {
-                    Text("The default profile cannot be deleted, but its browsing data and fingerprint seed can be cleared or rotated at any time.")
+                    Text(L("The default profile cannot be deleted, but its browsing data and fingerprint seed can be cleared or rotated at any time."))
                 }
             }
 
@@ -572,7 +586,7 @@ struct ProfileEditorView: View {
                                 ProgressView()
                                     .padding(.trailing, 6)
                             }
-                            Text(isDeleting ? "Deleting Profile…" : "Delete \"\(current.name)\"…")
+                            Text(isDeleting ? L("Deleting Profile…") : L("Delete \"\(current.localizedDisplayName)\"…"))
                                 .fontWeight(.semibold)
                             Spacer()
                         }
@@ -580,13 +594,15 @@ struct ProfileEditorView: View {
                     .disabled(isDeleting)
                     .accessibilityIdentifier("profile-editor-delete-button")
                 } footer: {
-                    Text("Removes \(tabCount) \(tabCount == 1 ? "tab" : "tabs"), \(favCount) \(favCount == 1 ? "favorite" : "favorites"), history, and isolated site cookies. Files saved in Downloads Vault are untouched.")
+                    let tabSummary = L("\(tabCount) tabs")
+                    let favSummary = L("\(favCount) favorites")
+                    Text(L("Removes \(tabSummary), \(favSummary), history, and isolated site cookies. Files saved in Downloads Vault are untouched."))
                 }
             }
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(DysprosiumTokens.Space.sectionSpacing)
-        .navigationTitle(current.name)
+        .navigationTitle(current.localizedDisplayName)
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
             commitEdits(debounced: false)
@@ -595,11 +611,11 @@ struct ProfileEditorView: View {
             ClearBrowsingDataSheet(browserStore: browserStore, targetProfileID: profileID)
         }
         .confirmationDialog(
-            "Delete \"\(current.name)\"?",
+            L("Delete \"\(current.localizedDisplayName)\"?"),
             isPresented: $isConfirmingDelete,
             titleVisibility: .visible
         ) {
-            Button("Delete Profile & Site Data", role: .destructive) {
+            Button(L("Delete Profile & Site Data"), role: .destructive) {
                 isDeleting = true
                 Task { @MainActor in
                     await browserStore.deleteProfile(id: profileID)
@@ -608,9 +624,11 @@ struct ProfileEditorView: View {
                     onDeleted()
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L("Cancel"), role: .cancel) {}
         } message: {
-            Text("Removes \(tabCount) \(tabCount == 1 ? "tab" : "tabs"), \(favCount) \(favCount == 1 ? "favorite" : "favorites"), browsing history, and isolated site logins for \"\(current.name)\". Downloads in Vault are kept.")
+            let tabSummary = L("\(tabCount) tabs")
+            let favSummary = L("\(favCount) favorites")
+            Text(L("Removes \(tabSummary), \(favSummary), browsing history, and isolated site logins for \"\(current.localizedDisplayName)\". Downloads in Vault are kept."))
         }
     }
 
@@ -662,8 +680,8 @@ private struct ProfileSymbolPickerGrid: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(option.label)
-                .accessibilityValue(isSelected ? "Selected" : "")
+                .accessibilityLabel(option.localizedLabel)
+                .accessibilityValue(isSelected ? L("Selected") : "")
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }

@@ -23,12 +23,14 @@ private struct DysprosiumAppRootScene: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var scheduler = TransferScheduler()
     @State private var themeStore = DysprosiumThemeStore.shared
+    @State private var languageStore = AppLanguageStore.shared
     @State private var incomingLocalPDFURL: URL?
 
     var body: some View {
         RootWorkspaceView(scheduler: scheduler, incomingLocalPDFURL: $incomingLocalPDFURL)
             .tint(themeStore.tokens.accent)
             .environment(\.dysprosiumTokens, themeStore.tokens)
+            .environment(\.locale, languageStore.effectiveLocale)
             .onOpenURL { incomingURL in
                 if incomingURL.isFileURL && incomingURL.pathExtension.lowercased() == "pdf" {
                     incomingLocalPDFURL = incomingURL

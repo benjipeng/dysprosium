@@ -13,6 +13,64 @@ public struct FilterSubscription: Identifiable, Codable, Hashable, Sendable {
         case popups = "Popups & Annoyances"
         case antiAdblock = "Anti-Adblock Bypass"
         case custom = "Custom List"
+
+        public var localizedTitle: String {
+            switch self {
+            case .ads: return L("Ads & Trackers")
+            case .regional: return L("Chinese & Regional")
+            case .privacy: return L("Privacy & Telemetry")
+            case .security: return L("Malware & Badware")
+            case .popups: return L("Popups & Annoyances")
+            case .antiAdblock: return L("Anti-Adblock Bypass")
+            case .custom: return L("Custom List")
+            }
+        }
+    }
+
+    public var localizedTitle: String {
+        guard isBuiltInSeed else { return title }
+        switch id {
+        case "ubol-core": return L("uBlock Origin Lite · Core Filters")
+        case "adguard-ios-base": return L("AdGuard Base + EasyList (iOS)")
+        case "adguard-ios-chinese": return L("AdGuard Chinese Filter (iOS)")
+        case "cjx-annoyance": return L("CJX's Annoyance List")
+        case "ubo-privacy": return L("uBlock Origin · Privacy")
+        case "adguard-ios-tracking": return L("AdGuard Tracking Protection (iOS)")
+        case "ubo-badware": return L("uBlock Origin · Badware Risks")
+        case "ubol-annoyances": return L("uBlock Origin Lite · Popups & Overlays")
+        case "adguard-ios-annoyances": return L("AdGuard Popups & Annoyances (iOS)")
+        case "easylist-anti-adblock": return L("Anti-Adblock Warning Removal")
+        case "ubo-unbreak": return L("uBlock Origin · Unbreak")
+        case "ubo-quick-fixes": return L("uBlock Origin · Quick Fixes")
+        case "adguard-ios-mobile": return L("AdGuard Mobile Ads Filter (iOS)")
+        case "adguard-ios-cookies": return L("AdGuard Cookie Notices (iOS)")
+        case "adguard-ios-social": return L("AdGuard Social Media Widgets (iOS)")
+        case "peter-lowe-blocklist": return L("Peter Lowe's Ad & Tracking Server List")
+        default: return title
+        }
+    }
+
+    public var localizedSubtitle: String {
+        guard isBuiltInSeed else { return subtitle }
+        switch id {
+        case "ubol-core": return L("uBOL-home MV3 network & video ad ruleset")
+        case "adguard-ios-base": return L("WebKit-optimized global ad & pre-roll filter feed")
+        case "adguard-ios-chinese": return L("WebKit-optimized domestic ad SDKs & 'Open in App' overlays")
+        case "cjx-annoyance": return L("Removes Chinese self-promo banners, QR prompts & nags")
+        case "ubo-privacy": return L("Blocks telemetry beacons, session replay & analytics scripts")
+        case "adguard-ios-tracking": return L("WebKit-optimized tracker, pixel & fingerprinting defense")
+        case "ubo-badware": return L("Blocks known malware, phishing & browser-mining hosts")
+        case "ubol-annoyances": return L("uBOL-home popunder, modal & overlay shield")
+        case "adguard-ios-annoyances": return L("Blocks hostile popups ($popup) & floating banners")
+        case "easylist-anti-adblock": return L("Community rules bypassing anti-adblock walls")
+        case "ubo-unbreak": return L("Scriptlets fixing broken media players & anti-adblock walls")
+        case "ubo-quick-fixes": return L("Rapid-response anti-adblock & video player scriptlets")
+        case "adguard-ios-mobile": return L("Optional mobile WAP/banner ad network rules")
+        case "adguard-ios-cookies": return L("Optional GDPR / EU cookie consent banner suppressor")
+        case "adguard-ios-social": return L("Optional third-party share buttons & social embed blocker")
+        case "peter-lowe-blocklist": return L("Optional compact host-level ad & tracker domain list")
+        default: return subtitle
+        }
     }
 
     public enum Format: String, Codable, Sendable {
@@ -1063,13 +1121,13 @@ public final class CleanroomContentBlocker {
                     do {
                         let (data, resp) = try await session.data(for: req)
                         guard let http = resp as? HTTPURLResponse else {
-                            return (sub.id, nil, nil, nil, "Non-HTTP response")
+                            return (sub.id, nil, nil, nil, L("Non-HTTP response"))
                         }
                         if http.statusCode == 304 {
                             return (sub.id, nil, sub.etag, sub.lastModified, nil)
                         }
                         guard (200...299).contains(http.statusCode), !data.isEmpty else {
-                            return (sub.id, nil, nil, nil, "HTTP \(http.statusCode)")
+                            return (sub.id, nil, nil, nil, L("HTTP \(http.statusCode)"))
                         }
                         let newETag = http.value(forHTTPHeaderField: "ETag")
                         let newLM = http.value(forHTTPHeaderField: "Last-Modified")
@@ -1158,7 +1216,7 @@ public final class CleanroomContentBlocker {
         didMutateSubscriptionsBeforeWarmup = true
         let format: FilterSubscription.Format = url.pathExtension.lowercased() == "json" ? .dnrJSON : .abpFilterList
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveTitle = cleanTitle.isEmpty ? (url.host() ?? "Custom Filter") : cleanTitle
+        let effectiveTitle = cleanTitle.isEmpty ? (url.host() ?? L("Custom Filter")) : cleanTitle
         let newSub = FilterSubscription(
             id: "custom-\(UUID().uuidString.prefix(8).lowercased())",
             title: effectiveTitle,

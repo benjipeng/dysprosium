@@ -11,6 +11,14 @@ struct FingerprintLabView: View {
         case changed = "Changed"
 
         var id: String { rawValue }
+
+        var localizedTitle: String {
+            switch self {
+            case .all: return L("All")
+            case .highRisk: return L("High Risk")
+            case .changed: return L("Changed")
+            }
+        }
     }
 
     @Environment(\.dysprosiumTokens) private var tokens
@@ -83,15 +91,15 @@ struct FingerprintLabView: View {
         .onChange(of: fingerprintShield.isEnabled) { _, _ in
             browserStore.refreshLiveUserAgentsForFingerprintShieldToggle()
         }
-        .navigationTitle("Fingerprint Lab")
+        .navigationTitle(L("Fingerprint Lab"))
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, prompt: "Filter signals…")
+        .searchable(text: $searchText, prompt: L("Filter signals…"))
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
                     Task { await runSelectedAudit() }
                 } label: {
-                    Label("Re-run Audit", systemImage: "arrow.clockwise")
+                    Label(L("Re-run Audit"), systemImage: "arrow.clockwise")
                 }
                 .disabled(engine.isRunning)
 
@@ -105,7 +113,7 @@ struct FingerprintLabView: View {
                     }
                 } label: {
                     Label(
-                        engine.baselineSnapshot == nil ? "Pin Baseline" : "Update Baseline",
+                        engine.baselineSnapshot == nil ? L("Pin Baseline") : L("Update Baseline"),
                         systemImage: engine.baselineSnapshot == nil ? "pin" : "pin.fill"
                     )
                 }
@@ -120,7 +128,7 @@ struct FingerprintLabView: View {
                         copiedJSON = false
                     }
                 } label: {
-                    Label(copiedJSON ? "Copied JSON" : "Copy JSON", systemImage: copiedJSON ? "checkmark" : "doc.on.doc")
+                    Label(copiedJSON ? L("Copied JSON") : L("Copy JSON"), systemImage: copiedJSON ? "checkmark" : "doc.on.doc")
                 }
                 .disabled(activeSnapshot == nil)
             }
@@ -148,7 +156,7 @@ struct FingerprintLabView: View {
     @ViewBuilder
     private var modeAndIdentitySection: some View {
         Section {
-            Picker("Audit Posture", selection: $selectedMode) {
+            Picker(L("Audit Posture"), selection: $selectedMode) {
                 ForEach(FingerprintAuditMode.allCases) { mode in
                     Text(mode.title).tag(mode)
                 }
@@ -161,9 +169,9 @@ struct FingerprintLabView: View {
                     ProgressView()
                         .controlSize(.small)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Running Air-Gapped Audit…")
+                        Text(L("Running Air-Gapped Audit…"))
                             .font(.subheadline.weight(.medium))
-                        Text("Evaluating FingerprintJS v4 & prototype integrity locally")
+                        Text(L("Evaluating FingerprintJS v4 & prototype integrity locally"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -175,11 +183,11 @@ struct FingerprintLabView: View {
         } header: {
             Text(
                 selectedMode == .standard && browserStore.isMultiProfileEnabled
-                    ? "Session Specimen · \(browserStore.activeProfile.name)"
-                    : "Session Specimen"
+                    ? L("Session Specimen · \(browserStore.activeProfile.localizedDisplayName)")
+                    : L("Session Specimen")
             )
         } footer: {
-            Text("Runs 100% locally inside a CSP-locked WKWebView with zero network requests. Switch modes or fold/unfold displays, then tap Re-run to compare.")
+            Text(L("Runs 100% locally inside a CSP-locked WKWebView with zero network requests. Switch modes or fold/unfold displays, then tap Re-run to compare."))
         }
     }
 
@@ -191,7 +199,7 @@ struct FingerprintLabView: View {
                     Image(systemName: snapshot.mode.systemImage)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(modeTint(snapshot.mode))
-                    Text("VISITOR ID · FPJS v\(snapshot.fpjsVersion)")
+                    Text(L("VISITOR ID · FPJS v\(snapshot.fpjsVersion)"))
                         .font(.caption2.weight(.semibold))
                         .tracking(0.6)
                         .foregroundStyle(.secondary)
@@ -201,7 +209,7 @@ struct FingerprintLabView: View {
                     ProgressView()
                         .controlSize(.mini)
                 } else {
-                    Text("\(snapshot.totalDurationMs) ms")
+                    Text(L("\(snapshot.totalDurationMs) ms"))
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -236,7 +244,7 @@ struct FingerprintLabView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Copy Visitor ID")
+                .accessibilityLabel(L("Copy Visitor ID"))
             }
 
             // Three calibrated semantic pills — zero clutter, high legibility in Light & Dark
@@ -256,7 +264,7 @@ struct FingerprintLabView: View {
     private func statusPills(snapshot: FingerprintAuditSnapshot) -> some View {
         let liesClean = snapshot.lieCount == 0
         pillBadge(
-            text: liesClean ? "0 Lies · Native" : "\(snapshot.lieCount) Lies",
+            text: liesClean ? L("0 Lies · Native") : L("\(snapshot.lieCount) Lies"),
             systemImage: liesClean ? "checkmark.seal.fill" : "exclamationmark.shield.fill",
             foreground: liesClean ? tokens.statusSuccess : tokens.statusDanger,
             background: liesClean ? tokens.statusSuccessFill : tokens.statusDangerFill
@@ -264,7 +272,7 @@ struct FingerprintLabView: View {
 
         let highCount = snapshot.highRiskSignals.count
         pillBadge(
-            text: "\(highCount) High Entropy",
+            text: L("\(highCount) High Entropy"),
             systemImage: highCount > 0 ? "eye.trianglebadge.exclamationmark" : "checkmark.circle.fill",
             foreground: highCount > 0 ? tokens.statusWarning : tokens.statusSuccess,
             background: highCount > 0 ? tokens.statusWarningFill : tokens.statusSuccessFill
@@ -298,10 +306,10 @@ struct FingerprintLabView: View {
     @ViewBuilder
     private var shieldControlSection: some View {
         Section {
-            Toggle("0-Frame Fingerprint Shield", isOn: $fingerprintShield.isEnabled)
+            Toggle(L("0-Frame Fingerprint Shield"), isOn: $fingerprintShield.isEnabled)
                 .font(.subheadline)
 
-            Toggle("Mask Foldable Screen Class", isOn: $fingerprintShield.maskFoldableScreen)
+            Toggle(L("Mask Foldable Screen Class"), isOn: $fingerprintShield.maskFoldableScreen)
                 .font(.subheadline)
                 .disabled(!fingerprintShield.isEnabled && selectedMode != .privateEphemeral)
 
@@ -309,8 +317,8 @@ struct FingerprintLabView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(
                         browserStore.isMultiProfileEnabled
-                            ? "Active Persona · \(browserStore.activeProfile.name)"
-                            : "Active Persona & Seed"
+                            ? L("Active Persona · \(browserStore.activeProfile.localizedDisplayName)")
+                            : L("Active Persona & Seed")
                     )
                     .font(.subheadline)
                     let activeProfile = browserStore.activeProfile
@@ -330,7 +338,7 @@ struct FingerprintLabView: View {
                     _ = browserStore.rotateFingerprintSeed(forProfileID: browserStore.activeProfileID)
                     Task { await runSelectedAudit() }
                 } label: {
-                    Label("Rotate Seed", systemImage: "arrow.trianglehead.2.clockwise")
+                    Label(L("Rotate Seed"), systemImage: "arrow.trianglehead.2.clockwise")
                         .font(.caption.weight(.semibold))
                         .symbolRenderingMode(.monochrome)
                 }
@@ -340,9 +348,9 @@ struct FingerprintLabView: View {
                 .disabled(engine.isRunning)
             }
         } header: {
-            Text("Seeded Farbling Engine")
+            Text(L("Seeded Farbling Engine"))
         } footer: {
-            Text("Injects deterministic per-site Canvas, WebAudio, WebGL, DOMRect, and about:blank iframe shielding at document-start with zero native prototype leaks.")
+            Text(L("Injects deterministic per-site Canvas, WebAudio, WebGL, DOMRect, and about:blank iframe shielding at document-start with zero native prototype leaks."))
         }
     }
 
@@ -364,11 +372,11 @@ struct FingerprintLabView: View {
                     .padding(.top, 1)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(identicalID ? "Same Visitor ID as Baseline" : "Visitor ID Rotated vs Baseline")
+                    Text(identicalID ? L("Same Visitor ID as Baseline") : L("Visitor ID Rotated vs Baseline"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(identicalID ? tokens.statusWarning : tokens.statusSuccess)
 
-                    Text("Baseline: \(baseline.mode.title) (\(Int(baseline.viewportSize.width))×\(Int(baseline.viewportSize.height))) · \(changedCount) signal\(changedCount == 1 ? "" : "s") changed")
+                    Text(L("Baseline: \(baseline.mode.title) (\(Int(baseline.viewportSize.width))×\(Int(baseline.viewportSize.height))) · \(changedCount) signals changed"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -376,7 +384,7 @@ struct FingerprintLabView: View {
 
                 Spacer()
 
-                Button("Clear") {
+                Button(L("Clear")) {
                     engine.clearBaseline()
                     if signalFilter == .changed { signalFilter = .all }
                 }
@@ -386,7 +394,7 @@ struct FingerprintLabView: View {
             }
             .padding(.vertical, 2)
         } header: {
-            Text("Baseline Diff")
+            Text(L("Baseline Diff"))
         }
     }
 
@@ -418,9 +426,9 @@ struct FingerprintLabView: View {
                     Image(systemName: snapshot.lieCount == 0 ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
                         .foregroundStyle(snapshot.lieCount == 0 ? tokens.statusSuccess : tokens.statusDanger)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Integrity & Lie Detection")
+                        Text(L("Integrity & Lie Detection"))
                             .font(.subheadline.weight(.semibold))
-                        Text("\(snapshot.lieChecks.filter(\.passed).count)/\(snapshot.lieChecks.count) native checks clean · Zero JS spoofing")
+                        Text(L("\(snapshot.lieChecks.filter(\.passed).count)/\(snapshot.lieChecks.count) native checks clean · Zero JS spoofing"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -434,22 +442,22 @@ struct FingerprintLabView: View {
     @ViewBuilder
     private func signalFilterSection(snapshot: FingerprintAuditSnapshot) -> some View {
         Section {
-            Picker("Signal Filter", selection: $signalFilter) {
+            Picker(L("Signal Filter"), selection: $signalFilter) {
                 ForEach(availableFilters) { filter in
                     switch filter {
                     case .all:
-                        Text("All (\(snapshot.signals.count))").tag(filter)
+                        Text(L("All (\(snapshot.signals.count))")).tag(filter)
                     case .highRisk:
-                        Text("High Risk (\(snapshot.highRiskSignals.count))").tag(filter)
+                        Text(L("High Risk (\(snapshot.highRiskSignals.count))")).tag(filter)
                     case .changed:
-                        Text("Changed (\(changedIDs.count))").tag(filter)
+                        Text(L("Changed (\(changedIDs.count))")).tag(filter)
                     }
                 }
             }
             .pickerStyle(.segmented)
             .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
         } header: {
-            Text("Collected Signals")
+            Text(L("Collected Signals"))
         }
     }
 
@@ -459,9 +467,9 @@ struct FingerprintLabView: View {
         if filtered.isEmpty {
             Section {
                 ContentUnavailableView(
-                    "No Matching Signals",
+                    L("No Matching Signals"),
                     systemImage: "magnifyingglass",
-                    description: Text(signalFilter == .changed ? "All signals match the pinned baseline identically." : "Try clearing your filter or search query.")
+                    description: Text(signalFilter == .changed ? L("All signals match the pinned baseline identically.") : L("Try clearing your filter or search query."))
                 )
             }
         } else {
@@ -473,7 +481,7 @@ struct FingerprintLabView: View {
                             signalRow(item: item)
                         }
                     } header: {
-                        Label(category.rawValue, systemImage: category.systemImage)
+                        Label(category.localizedTitle, systemImage: category.systemImage)
                             .font(.caption.weight(.semibold))
                     }
                 }
@@ -543,7 +551,7 @@ struct FingerprintLabView: View {
 
                         if isChanged, let old = baselineItem {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("BASELINE → CURRENT")
+                                Text(L("BASELINE → CURRENT"))
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                 Text(old.summary)

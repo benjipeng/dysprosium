@@ -57,7 +57,7 @@ public actor FFmpegMuxActor {
         }
 
         guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
-            throw NSError(domain: "Dysprosium.Mux", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unable to create passthrough muxer"])
+            throw NSError(domain: "Dysprosium.Mux", code: -1, userInfo: [NSLocalizedDescriptionKey: L("Unable to create passthrough muxer")])
         }
         exporter.shouldOptimizeForNetworkUse = true
         try await exporter.export(to: destinationURL, as: .mp4)

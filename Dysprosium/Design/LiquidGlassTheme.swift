@@ -6,35 +6,35 @@ import SwiftUI
 /// Liquid Glass bars refract clean, unmuddied surfaces.
 public enum DysprosiumFormatters {
     public static func bytes(_ count: Int64) -> String {
-        max(0, count).formatted(.byteCount(style: .file))
+        max(0, count).formatted(.byteCount(style: .file).locale(AppLocalization.currentLocale))
     }
 
     public static func speed(_ bytesPerSec: Double) -> String {
-        guard bytesPerSec > 1 else { return "0 B/s" }
-        return "\(Int64(bytesPerSec).formatted(.byteCount(style: .file)))/s"
+        guard bytesPerSec > 1 else { return L("0 B/s") }
+        return L("\(bytes(Int64(bytesPerSec)))/s")
     }
 
     public static func eta(_ seconds: TimeInterval?) -> String {
         guard let seconds, seconds.isFinite, seconds > 0 else { return "—" }
         let total = Int(seconds.rounded())
-        if total < 60 { return "\(total)s" }
+        if total < 60 { return L("\(total)s") }
         let mins = total / 60
         let secs = total % 60
-        if mins < 60 { return String(format: "%dm %02ds", mins, secs) }
-        return String(format: "%dh %02dm", mins / 60, mins % 60)
+        if mins < 60 { return L("\(mins)m \(secs, specifier: "%02lld")s") }
+        return L("\(mins / 60)h \(mins % 60, specifier: "%02lld")m")
     }
 
     /// Formats elapsed transfer durations with sub-minute precision (`14.2s`, `2m 18s`, `1h 04m`).
     public static func duration(_ seconds: TimeInterval?) -> String {
         guard let seconds, seconds.isFinite, seconds > 0 else { return "—" }
         if seconds < 60 {
-            return seconds < 10 ? String(format: "%.1fs", seconds) : String(format: "%.0fs", seconds)
+            return seconds < 10 ? L("\(seconds, specifier: "%.1f")s") : L("\(seconds, specifier: "%.0f")s")
         }
         let total = Int(seconds.rounded())
         let mins = total / 60
         let secs = total % 60
-        if mins < 60 { return String(format: "%dm %02ds", mins, secs) }
-        return String(format: "%dh %02dm", mins / 60, mins % 60)
+        if mins < 60 { return L("\(mins)m \(secs, specifier: "%02lld")s") }
+        return L("\(mins / 60)h \(mins % 60, specifier: "%02lld")m")
     }
 }
 
@@ -103,8 +103,8 @@ public struct ByteRangeHeatmapBar: View {
             }
         }
         .frame(height: 7)
-        .accessibilityLabel("Byte range progress")
-        .accessibilityValue("\(Int((fallbackProgress * 100).rounded())) percent")
+        .accessibilityLabel(L("Byte range progress"))
+        .accessibilityValue(L("\(Int((fallbackProgress * 100).rounded())) percent"))
     }
 }
 

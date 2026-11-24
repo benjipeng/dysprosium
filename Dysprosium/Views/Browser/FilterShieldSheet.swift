@@ -15,10 +15,10 @@ struct FilterShieldManagementSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("WebKit Content Shield") {
+                Section(L("WebKit Content Shield")) {
                     if let browserStore {
                         Toggle(
-                            "Ad, Popup & Anti-Adblock Shield",
+                            L("Ad, Popup & Anti-Adblock Shield"),
                             isOn: Binding(
                                 get: { browserStore.isShieldEnabled },
                                 set: { browserStore.isShieldEnabled = $0 }
@@ -26,7 +26,7 @@ struct FilterShieldManagementSheet: View {
                         )
                     } else if let session {
                         Toggle(
-                            "Ad, Popup & Anti-Adblock Shield",
+                            L("Ad, Popup & Anti-Adblock Shield"),
                             isOn: Binding(
                                 get: { session.isShieldEnabled },
                                 set: { session.setShieldEnabled($0) }
@@ -34,28 +34,28 @@ struct FilterShieldManagementSheet: View {
                         )
                     }
 
-                    LabeledContent("Compiled DFA Rules") {
+                    LabeledContent(L("Compiled DFA Rules")) {
                         if blocker.isSyncing {
                             ProgressView()
                                 .controlSize(.small)
                         } else {
-                            Text(blocker.activeRuleCount.formatted())
+                            Text(blocker.activeRuleCount.formatted(.number.locale(AppLocalization.currentLocale)))
                                 .font(.subheadline.monospacedDigit())
                         }
                     }
 
                     if let session {
-                        LabeledContent("Popups Blocked", value: "\(session.blockedPopupCount)")
+                        LabeledContent(L("Popups Blocked"), value: "\(session.blockedPopupCount)")
                             .font(.subheadline.monospacedDigit())
                     }
 
-                    LabeledContent("Last Updated") {
+                    LabeledContent(L("Last Updated")) {
                         if let last = blocker.lastGlobalSyncDate {
                             Text(last, style: .relative)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
-                            Text("Syncing…")
+                            Text(L("Syncing…"))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -65,7 +65,7 @@ struct FilterShieldManagementSheet: View {
                         Task { await blocker.refreshAllSubscriptions(force: true) }
                     } label: {
                         Label(
-                            blocker.isSyncing ? "Updating Filter Lists…" : "Update Filter Lists Now",
+                            blocker.isSyncing ? L("Updating Filter Lists…") : L("Update Filter Lists Now"),
                             systemImage: "arrow.clockwise"
                         )
                         .symbolRenderingMode(.monochrome)
@@ -87,16 +87,16 @@ struct FilterShieldManagementSheet: View {
                                     )
                                 ) {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(sub.title)
+                                        Text(sub.localizedTitle)
                                             .font(.subheadline)
                                         HStack(spacing: 6) {
-                                            Text(sub.subtitle)
+                                            Text(sub.localizedSubtitle)
                                                 .lineLimit(1)
                                             if let err = sub.lastError {
                                                 Text("· \(err)")
                                                     .foregroundStyle(tokens.statusWarning)
                                             } else if sub.compiledRuleCount > 0 {
-                                                Text("· \(sub.compiledRuleCount.formatted())")
+                                                Text("· \(sub.compiledRuleCount.formatted(.number.locale(AppLocalization.currentLocale)))")
                                                     .monospacedDigit()
                                             }
                                         }
@@ -112,26 +112,26 @@ struct FilterShieldManagementSheet: View {
                                             Image(systemName: "trash")
                                         }
                                         .tint(tokens.statusDanger)
-                                        .accessibilityLabel("Remove Subscription")
+                                        .accessibilityLabel(L("Remove Subscription"))
                                     }
                                 }
                             }
                         } header: {
-                            Text(category.rawValue)
+                            Text(category.localizedTitle)
                         }
                     }
                 }
 
-                Section("Add Custom Filter URL") {
-                    TextField("Title (Optional)", text: $customTitle)
+                Section(L("Add Custom Filter URL")) {
+                    TextField(L("Title (Optional)"), text: $customTitle)
                     TextField("https://example.com/filters.txt", text: $customURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
 
-                    Picker("Category", selection: $customCategory) {
+                    Picker(L("Category"), selection: $customCategory) {
                         ForEach(FilterSubscription.Category.allCases, id: \.self) { cat in
-                            Text(cat.rawValue).tag(cat)
+                            Text(cat.localizedTitle).tag(cat)
                         }
                     }
 
@@ -146,7 +146,7 @@ struct FilterShieldManagementSheet: View {
                             }
                         }
                     } label: {
-                        Label("Subscribe", systemImage: "plus.circle")
+                        Label(L("Subscribe"), systemImage: "plus.circle")
                             .symbolRenderingMode(.monochrome)
                     }
                     .disabled(customURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || blocker.isSyncing)
@@ -154,11 +154,11 @@ struct FilterShieldManagementSheet: View {
             }
             .listStyle(.insetGrouped)
             .listSectionSpacing(DysprosiumTokens.Space.sectionSpacing)
-            .navigationTitle("Shield & Filters")
+            .navigationTitle(L("Shield & Filters"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
+                    Button(L("Done")) {
                         dismiss()
                     }
                 }

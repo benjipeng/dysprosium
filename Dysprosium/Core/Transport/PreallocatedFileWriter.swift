@@ -7,9 +7,9 @@ public enum PreallocatedFileWriterError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .insufficientDiskSpace(let required, let available):
-            let reqStr = ByteCountFormatter.string(fromByteCount: required, countStyle: .file)
-            let availStr = ByteCountFormatter.string(fromByteCount: available, countStyle: .file)
-            return "Not enough free storage space (requires \(reqStr), \(availStr) available)."
+            let reqStr = DysprosiumFormatters.bytes(required)
+            let availStr = DysprosiumFormatters.bytes(available)
+            return L("Not enough free storage space (requires \(reqStr), \(availStr) available).")
         }
     }
 }

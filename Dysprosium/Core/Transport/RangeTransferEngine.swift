@@ -41,7 +41,7 @@ public enum RangeTransferError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .remoteResourceModified:
-            return "Remote file changed since the transfer was paused; restarting from the beginning."
+            return L("Remote file changed since the transfer was paused; restarting from the beginning.")
         }
     }
 }
@@ -332,7 +332,7 @@ public struct RangeTransferEngine: Sendable {
             throw NSError(
                 domain: "Dysprosium.HTTP",
                 code: http.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode) during stream probe"]
+                userInfo: [NSLocalizedDescriptionKey: L("HTTP \(http.statusCode) during stream probe")]
             )
         }
 
@@ -806,7 +806,7 @@ public struct RangeTransferEngine: Sendable {
             throw NSError(
                 domain: "Dysprosium.Range",
                 code: http.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "Expected 206 Partial Content, got HTTP \(http.statusCode)"]
+                userInfo: [NSLocalizedDescriptionKey: L("Expected 206 Partial Content, got HTTP \(http.statusCode)")]
             )
         }
 
@@ -893,7 +893,7 @@ public struct RangeTransferEngine: Sendable {
             throw NSError(
                 domain: "Dysprosium.HTTP",
                 code: http.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode) during stream download"]
+                userInfo: [NSLocalizedDescriptionKey: L("HTTP \(http.statusCode) during stream download")]
             )
         }
 

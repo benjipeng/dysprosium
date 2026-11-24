@@ -13,17 +13,17 @@ public enum FingerprintAuditMode: String, CaseIterable, Identifiable, Sendable {
 
     public var title: String {
         switch self {
-        case .standard: return "Standard"
-        case .privateEphemeral: return "Private"
-        case .shieldPaused: return "No Shield"
+        case .standard: return L("Standard")
+        case .privateEphemeral: return L("Private")
+        case .shieldPaused: return L("No Shield")
         }
     }
 
     public var subtitle: String {
         switch self {
-        case .standard: return "Persistent store + Content Shield"
-        case .privateEphemeral: return "Ephemeral .nonPersistent() + Shield"
-        case .shieldPaused: return "Persistent store without Content Shield"
+        case .standard: return L("Persistent store + Content Shield")
+        case .privateEphemeral: return L("Ephemeral .nonPersistent() + Shield")
+        case .shieldPaused: return L("Persistent store without Content Shield")
         }
     }
 
@@ -55,9 +55,9 @@ public enum FingerprintEntropyRisk: String, CaseIterable, Comparable, Sendable {
 
     public var label: String {
         switch self {
-        case .high: return "High"
-        case .medium: return "Med"
-        case .low: return "Low"
+        case .high: return L("High")
+        case .medium: return L("Med")
+        case .low: return L("Low")
         }
     }
 }
@@ -69,6 +69,15 @@ public enum FingerprintSignalCategory: String, CaseIterable, Identifiable, Senda
     case shieldCapabilities = "Shield & Storage"
 
     public var id: String { rawValue }
+
+    public var localizedTitle: String {
+        switch self {
+        case .displayGraphics: return L("Display & Graphics")
+        case .localePreferences: return L("Locale & Preferences")
+        case .audioHardware: return L("Audio & Hardware")
+        case .shieldCapabilities: return L("Shield & Storage")
+        }
+    }
 
     public var systemImage: String {
         switch self {
@@ -215,7 +224,7 @@ public final class FingerprintAuditEngine {
         defer { isRunning = false }
 
         guard let fpjsSource = Self.loadBundledFPJSSource() else {
-            lastError = "Missing bundled fp.min.js resource."
+            lastError = L("Missing bundled fp.min.js resource.")
             return nil
         }
 
@@ -307,7 +316,7 @@ public final class FingerprintAuditEngine {
 
         guard let payloadData = await receiver.waitForPayloadData(timeoutSeconds: 25),
               let payload = (try? JSONSerialization.jsonObject(with: payloadData)) as? [String: Any] else {
-            lastError = "Offline audit timed out before WebKit returned a report."
+            lastError = L("Offline audit timed out before WebKit returned a report.")
             return nil
         }
 
@@ -581,11 +590,13 @@ public final class FingerprintAuditEngine {
                   let passed = row["passed"] as? Bool else {
                 return nil
             }
+            let rawDetail = (row["detail"] as? String) ?? ""
+            let localized = localizedLieCheck(id: id, rawTitle: title, passed: passed, rawDetail: rawDetail)
             return FingerprintLieCheck(
                 id: id,
-                title: title,
+                title: localized.title,
                 passed: passed,
-                detail: (row["detail"] as? String) ?? ""
+                detail: localized.detail
             )
         }
 
@@ -604,12 +615,12 @@ public final class FingerprintAuditEngine {
         items.append(
             FingerprintSignalItem(
                 id: "viewportLive",
-                title: "Live Viewport",
+                title: L("Live Viewport"),
                 category: .displayGraphics,
                 summary: vpSummary,
                 rawDetail: "innerWidth: \(Int(vpWidth)), innerHeight: \(Int(vpHeight)), devicePixelRatio: \(dpr), screen: \(Int(scrWidth))×\(Int(scrHeight))",
                 entropyRisk: isRareViewport ? .high : .low,
-                riskReason: isRareViewport ? "Non-standard slab iPhone viewport (high distinction on foldables / split view)." : nil
+                riskReason: isRareViewport ? L("Non-standard slab iPhone viewport (high distinction on foldables / split view).") : nil
             )
         )
 
@@ -618,12 +629,12 @@ public final class FingerprintAuditEngine {
             items.append(
                 FingerprintSignalItem(
                     id: "dynamicType",
-                    title: "Dynamic Type (-apple-system-body)",
+                    title: L("Dynamic Type (-apple-system-body)"),
                     category: .localePreferences,
                     summary: String(format: "%.1f px", dynamicTypePx),
                     rawDetail: "Computed -apple-system-body font-size: \(dynamicTypePx) px (iOS default Large = 17.0 px)",
                     entropyRisk: isNonDefaultDT ? .high : .low,
-                    riskReason: isNonDefaultDT ? "Custom iOS text size setting exposes a narrow user cohort." : nil
+                    riskReason: isNonDefaultDT ? L("Custom iOS text size setting exposes a narrow user cohort.") : nil
                 )
             )
         }
@@ -670,6 +681,88 @@ public final class FingerprintAuditEngine {
         )
     }
 
+    nonisolated private static func localizedLieCheck(
+        id: String,
+        rawTitle: String,
+        passed: Bool,
+        rawDetail: String
+    ) -> (title: String, detail: String) {
+        switch id {
+        case "canvas-native":
+            return (
+                L("Canvas API Integrity"),
+                passed ? L("toDataURL & getImageData report [native code]") : L("Canvas APIs appear monkey-patched")
+            )
+        case "canvas-determinism":
+            return (
+                L("Canvas Repeat-Draw Determinism"),
+                passed ? L("Repeated draws return bit-identical PNGs") : L("Non-deterministic random noise detected")
+            )
+        case "iframe-realm-parity":
+            let detail: String
+            if passed {
+                detail = L("about:blank iframe matches main realm bit-for-bit")
+            } else {
+                switch rawDetail {
+                case "Child realm unavailable":
+                    detail = L("Child realm unavailable")
+                case "Child iframe prototype exposed non-native wrapper":
+                    detail = L("Child iframe prototype exposed non-native wrapper")
+                case "about:blank iframe returned mismatched canvas bytes":
+                    detail = L("about:blank iframe returned mismatched canvas bytes")
+                case "Iframe realm probe threw exception":
+                    detail = L("Iframe realm probe threw exception")
+                default:
+                    detail = rawDetail
+                }
+            }
+            return (L("Clean-Iframe Realm Parity"), detail)
+        case "descriptor-stealth":
+            return (
+                L("Native Descriptor & Non-Constructible"),
+                passed
+                    ? L("prototype === undefined, toString cloaked, new() throws TypeError")
+                    : L("Wrapper leaked constructible prototype or toString mismatch")
+            )
+        case "navigator-native":
+            return (
+                L("Navigator Prototype Integrity"),
+                passed
+                    ? L("languages & userAgent getters unmodified")
+                    : L("Own-property override or non-native getter detected")
+            )
+        case "screen-native":
+            return (
+                L("Screen Prototype Integrity"),
+                passed
+                    ? L("Screen.prototype.width reports native getter")
+                    : L("Screen dimensions appear spoofed in JS")
+            )
+        case "audio-native":
+            return (
+                L("WebAudio Integrity"),
+                passed ? L("OfflineAudioContext native constructor") : L("Audio constructor patched")
+            )
+        case "worker-parity":
+            let detail: String
+            if passed {
+                detail = L("UA, languages & cores match Web Worker")
+            } else if rawDetail == "Worker probe unavailable in sandbox" {
+                detail = L("Worker probe unavailable in sandbox")
+            } else if rawDetail == "Worker blocked by policy" {
+                detail = L("Worker blocked by policy")
+            } else if rawDetail.hasPrefix("Mismatch: ") {
+                let fields = String(rawDetail.dropFirst("Mismatch: ".count))
+                detail = L("Mismatch: \(fields)")
+            } else {
+                detail = rawDetail
+            }
+            return (L("Main ↔ Web Worker Parity"), detail)
+        default:
+            return (rawTitle, rawDetail)
+        }
+    }
+
     nonisolated private static func classifyComponent(
         key: String,
         value: Any?,
@@ -678,8 +771,8 @@ public final class FingerprintAuditEngine {
     ) -> FingerprintSignalItem {
         let title = humanTitle(for: key)
         let category = categoryForComponent(key)
-        let rawDetail = error.map { "Error: \($0)" } ?? stringifyDetail(value)
-        let summary = error.map { "Unavailable (\($0))" } ?? summarizeValue(key: key, value: value)
+        let rawDetail = error.map { L("Error: \($0)") } ?? stringifyDetail(value)
+        let summary = error.map { L("Unavailable (\($0))") } ?? summarizeValue(key: key, value: value)
 
         var risk: FingerprintEntropyRisk = .low
         var reason: String?
@@ -689,7 +782,7 @@ public final class FingerprintAuditEngine {
             let flat = flattenStringArray(value)
             if flat.count >= 2 {
                 risk = .high
-                reason = "Ordered multi-language preference (\(flat.joined(separator: ", "))) narrows anonymity set sharply."
+                reason = L("Ordered multi-language preference (\(flat.joined(separator: ", "))) narrows anonymity set sharply.")
             } else {
                 risk = .medium
             }
@@ -697,19 +790,19 @@ public final class FingerprintAuditEngine {
             let blocked = flattenStringArray(value)
             if !blocked.isEmpty {
                 risk = .high
-                reason = "Detected filter-list signature (\(blocked.count) matched lists) acts as a distinct blocker fingerprint."
+                reason = L("Detected filter-list signature (\(blocked.count) matched lists) acts as a distinct blocker fingerprint.")
             } else {
                 risk = .low
             }
         case "screenResolution", "screenFrame":
             risk = .high
-            reason = "Hardware display geometry distinguishes niche form factors (such as unfolded dual-display postures)."
+            reason = L("Hardware display geometry distinguishes niche form factors (such as unfolded dual-display postures).")
         case "canvas", "audio", "webGlBasics", "webGlExtensions", "fontPreferences", "fonts":
             risk = .medium
-            reason = "Rendering & GPU/audio pipeline signature varies by Apple Silicon generation and system settings."
+            reason = L("Rendering & GPU/audio pipeline signature varies by Apple Silicon generation and system settings.")
         case "timezone", "dateTimeLocale":
             risk = .medium
-            reason = "Combines with language order & IP geography for probabilistic matching."
+            reason = L("Combines with language order & IP geography for probabilistic matching.")
         default:
             risk = .low
         }
@@ -745,28 +838,28 @@ public final class FingerprintAuditEngine {
 
     nonisolated private static func humanTitle(for key: String) -> String {
         switch key {
-        case "domBlockers": return "Content Blocker Signature"
-        case "webGlBasics": return "WebGL Renderer & Vendor"
-        case "webGlExtensions": return "WebGL Extensions"
-        case "fontPreferences": return "System Font Metrics"
-        case "screenResolution": return "Physical Screen Resolution"
-        case "screenFrame": return "Safe Screen Frame"
-        case "hardwareConcurrency": return "CPU Logical Cores"
-        case "audioBaseLatency": return "Audio Base Latency"
-        case "colorGamut": return "Color Gamut"
-        case "colorDepth": return "Color Depth"
-        case "reducedMotion": return "Reduced Motion"
-        case "reducedTransparency": return "Reduced Transparency"
-        case "touchSupport": return "Touch Capabilities"
-        case "localStorage": return "Local Storage"
-        case "sessionStorage": return "Session Storage"
-        case "indexedDB": return "IndexedDB"
-        case "cookiesEnabled": return "Cookies Enabled"
-        case "hdr": return "HDR Display"
-        case "applePay": return "Apple Pay"
-        case "pdfViewerEnabled": return "PDF Viewer"
-        case "dateTimeLocale": return "Intl DateTime Locale"
-        case "privateClickMeasurement": return "Private Click Measurement"
+        case "domBlockers": return L("Content Blocker Signature")
+        case "webGlBasics": return L("WebGL Renderer & Vendor")
+        case "webGlExtensions": return L("WebGL Extensions")
+        case "fontPreferences": return L("System Font Metrics")
+        case "screenResolution": return L("Physical Screen Resolution")
+        case "screenFrame": return L("Safe Screen Frame")
+        case "hardwareConcurrency": return L("CPU Logical Cores")
+        case "audioBaseLatency": return L("Audio Base Latency")
+        case "colorGamut": return L("Color Gamut")
+        case "colorDepth": return L("Color Depth")
+        case "reducedMotion": return L("Reduced Motion")
+        case "reducedTransparency": return L("Reduced Transparency")
+        case "touchSupport": return L("Touch Capabilities")
+        case "localStorage": return L("Local Storage")
+        case "sessionStorage": return L("Session Storage")
+        case "indexedDB": return L("IndexedDB")
+        case "cookiesEnabled": return L("Cookies Enabled")
+        case "hdr": return L("HDR Display")
+        case "applePay": return L("Apple Pay")
+        case "pdfViewerEnabled": return L("PDF Viewer")
+        case "dateTimeLocale": return L("Intl DateTime Locale")
+        case "privateClickMeasurement": return L("Private Click Measurement")
         default:
             // Convert camelCase -> Title Case
             var out = ""
@@ -793,11 +886,11 @@ public final class FingerprintAuditEngine {
         if key == "webGlExtensions", let dict = value as? [String: Any] {
             let extCount = (dict["extensions"] as? [Any])?.count ?? 0
             let paramCount = (dict["parameters"] as? [Any])?.count ?? 0
-            return "\(extCount) extensions · \(paramCount) params"
+            return L("\(extCount) extensions · \(paramCount) params")
         }
         if key == "domBlockers" {
             let list = flattenStringArray(value)
-            if list.isEmpty { return "None detected" }
+            if list.isEmpty { return L("None detected") }
             let preview = list.prefix(3).joined(separator: ", ")
             return list.count > 3 ? "\(preview) +\(list.count - 3)" : preview
         }
@@ -810,29 +903,29 @@ public final class FingerprintAuditEngine {
         }
         if key == "fontPreferences", let dict = value as? [String: Any] {
             if let defVal = dict["default"] as? Double {
-                return String(format: "default %.2f px (%d styles)", defVal, dict.count)
+                return L("default \(defVal, specifier: "%.2f") px (\(dict.count) styles)")
             }
-            return "\(dict.count) font metrics"
+            return L("\(dict.count) font metrics")
         }
-        if let b = value as? Bool { return b ? "Yes" : "No" }
+        if let b = value as? Bool { return b ? L("Yes") : L("No") }
         if let n = value as? NSNumber {
             if CFGetTypeID(n) == CFBooleanGetTypeID() {
-                return n.boolValue ? "Yes" : "No"
+                return n.boolValue ? L("Yes") : L("No")
             }
             let d = n.doubleValue
             if d.rounded() == d { return String(Int64(d)) }
             return String(format: "%.6g", d)
         }
         if let s = value as? String {
-            return s.count > 64 ? String(s.prefix(64)) + "…" : (s.isEmpty ? "Empty" : s)
+            return s.count > 64 ? String(s.prefix(64)) + "…" : (s.isEmpty ? L("Empty") : s)
         }
         if let arr = value as? [Any] {
-            if arr.isEmpty { return "None (0)" }
+            if arr.isEmpty { return L("None (0)") }
             let flat = arr.prefix(4).map { String(describing: $0) }.joined(separator: ", ")
             return arr.count > 4 ? "\(flat) +\(arr.count - 4)" : flat
         }
         if let dict = value as? [String: Any] {
-            return "\(dict.count) fields"
+            return L("\(dict.count) fields")
         }
         return String(describing: value)
     }
@@ -869,7 +962,7 @@ private final class AuditMessageReceiver: NSObject, WKScriptMessageHandler {
     private var continuation: CheckedContinuation<Data?, Never>?
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        let dict = message.body as? [String: Any] ?? ["error": "Malformed audit message payload."]
+        let dict = message.body as? [String: Any] ?? ["error": L("Malformed audit message payload.")]
         let encoded = (try? JSONSerialization.data(withJSONObject: dict))
             ?? Data("{\"error\":\"Failed to encode audit payload.\"}".utf8)
         payloadData = encoded

@@ -23,38 +23,38 @@ struct TransferInspectorView: View {
                     )
 
                     HStack {
-                        LabeledContent("Transferred", value: DysprosiumFormatters.bytes(job.downloadedBytes))
+                        LabeledContent(L("Transferred"), value: DysprosiumFormatters.bytes(job.downloadedBytes))
                         Spacer()
-                        LabeledContent("Total", value: job.totalBytes.map(DysprosiumFormatters.bytes) ?? "Stream")
+                        LabeledContent(L("Total"), value: job.totalBytes.map(DysprosiumFormatters.bytes) ?? L("Stream"))
                     }
                     .font(.caption.monospacedDigit())
                 }
                 .padding(.vertical, 4)
             } header: {
                 HStack {
-                    Text(job.kind.rawValue)
+                    Text(job.kind.localizedTitle)
                     Spacer()
-                    Text("\(job.configuredLanes)× Lanes")
+                    Text(L("\(job.configuredLanes)× Lanes"))
                         .foregroundStyle(tokens.accent)
                 }
                 .font(.caption.monospacedDigit())
             }
 
-            Section("Throughput") {
+            Section(L("Throughput")) {
                 ThroughputSparklineView(samples: job.throughputSamples)
                     .frame(height: 52)
                     .padding(.vertical, 4)
 
-                LabeledContent("Speed", value: DysprosiumFormatters.speed(job.speedBytesPerSec))
+                LabeledContent(L("Speed"), value: DysprosiumFormatters.speed(job.speedBytesPerSec))
                     .font(.subheadline.monospacedDigit())
-                LabeledContent("Active Workers", value: "\(job.activeLanes) / \(job.configuredLanes)")
+                LabeledContent(L("Active Workers"), value: "\(job.activeLanes) / \(job.configuredLanes)")
                     .font(.subheadline.monospacedDigit())
-                LabeledContent("Remaining", value: DysprosiumFormatters.eta(job.etaSeconds))
+                LabeledContent(L("Remaining"), value: DysprosiumFormatters.eta(job.etaSeconds))
                     .font(.subheadline.monospacedDigit())
             }
 
             if !job.slices.isEmpty {
-                Section("Byte-Range Slices (\(job.slices.filter(\.isComplete).count)/\(job.slices.count))") {
+                Section(L("Byte-Range Slices (\(job.slices.filter(\.isComplete).count)/\(job.slices.count))")) {
                     ForEach(job.slices.prefix(16)) { slice in
                         HStack(spacing: 8) {
                             Image(
@@ -90,7 +90,7 @@ struct TransferInspectorView: View {
                 }
             }
 
-            Section("Source") {
+            Section(L("Source")) {
                 Text(job.sourceURL.absoluteString)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
@@ -109,7 +109,7 @@ struct TransferInspectorView: View {
             if !isEmbeddedInSplit, let vaultFileURL {
                 ToolbarItem(placement: .primaryAction) {
                     ShareLink(item: vaultFileURL) {
-                        Label("Export", systemImage: "square.and.arrow.up")
+                        Label(L("Export"), systemImage: "square.and.arrow.up")
                             .symbolRenderingMode(.monochrome)
                     }
                 }

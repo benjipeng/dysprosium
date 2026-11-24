@@ -5,14 +5,87 @@ import SQLite3
 private let SQLITE_TRANSIENT_DESTRUCTOR = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 public struct BrowserHistoryDaySummary: Identifiable, Equatable, Sendable {
+    private enum DisplayKind: Equatable, Sendable {
+        case today
+        case yesterday
+        case earlier
+        case calendarDate
+        case custom(String, String)
+    }
+
     /// Timezone-immune calendar key `YYYYMMDD` (e.g. `20261118`).
     public let dayYMD: Int64
     public let dayStart: Date
-    public let displayTitle: String
-    public let chipTitle: String
     public let count: Int
+    private let kind: DisplayKind
 
     public var id: Int64 { dayYMD }
+
+    public init(
+        dayYMD: Int64,
+        dayStart: Date,
+        displayTitle: String,
+        chipTitle: String,
+        count: Int
+    ) {
+        self.dayYMD = dayYMD
+        self.dayStart = dayStart
+        self.count = count
+        if displayTitle == "Today" && chipTitle == "Today" {
+            self.kind = .today
+        } else if displayTitle == "Yesterday" && chipTitle == "Yesterday" {
+            self.kind = .yesterday
+        } else if displayTitle == "Earlier" && chipTitle == "Earlier" {
+            self.kind = .earlier
+        } else {
+            self.kind = .custom(displayTitle, chipTitle)
+        }
+    }
+
+    private init(dayYMD: Int64, dayStart: Date, count: Int, kind: DisplayKind) {
+        self.dayYMD = dayYMD
+        self.dayStart = dayStart
+        self.count = count
+        self.kind = kind
+    }
+
+    public static func calendarDay(dayYMD: Int64, dayStart: Date, count: Int) -> BrowserHistoryDaySummary {
+        BrowserHistoryDaySummary(dayYMD: dayYMD, dayStart: dayStart, count: count, kind: .calendarDate)
+    }
+
+    public static func earlier(dayYMD: Int64, dayStart: Date, count: Int) -> BrowserHistoryDaySummary {
+        BrowserHistoryDaySummary(dayYMD: dayYMD, dayStart: dayStart, count: count, kind: .earlier)
+    }
+
+    public var displayTitle: String {
+        switch kind {
+        case .today: return L("Today")
+        case .yesterday: return L("Yesterday")
+        case .earlier: return L("Earlier")
+        case .calendarDate:
+            return dayStart.formatted(
+                .dateTime.weekday(.wide).month(.abbreviated).day()
+                    .locale(AppLocalization.currentLocale)
+            )
+        case .custom(let display, _):
+            return display
+        }
+    }
+
+    public var chipTitle: String {
+        switch kind {
+        case .today: return L("Today")
+        case .yesterday: return L("Yesterday")
+        case .earlier: return L("Earlier")
+        case .calendarDate:
+            return dayStart.formatted(
+                .dateTime.month(.abbreviated).day()
+                    .locale(AppLocalization.currentLocale)
+            )
+        case .custom(_, let chip):
+            return chip
+        }
+    }
 }
 
 public struct PersistedOpenTab: Identifiable, Equatable, Sendable {
@@ -110,18 +183,6 @@ public final class BrowserSQLiteStore: @unchecked Sendable {
     private var protectedWALInode: UInt64?
     private var protectedSHMInode: UInt64?
     private var insertCounter: Int = 0
-
-    private static let dayHeaderFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "EEEE, MMM d"
-        return f
-    }()
-
-    private static let dayChipFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f
-    }()
 
     public init(stateDirectory: URL, deferOpen: Bool = false) {
         self.stateDirectory = stateDirectory
@@ -1380,27 +1441,29 @@ public final class BrowserSQLiteStore: @unchecked Sendable {
             let ymd = sqlite3_column_int64(stmt, 0)
             let cnt = Int(sqlite3_column_int64(stmt, 1))
             let dayDate = Self.date(fromDayYMD: ymd)
-            let displayTitle: String
-            let chipTitle: String
             if ymd == todayYMD {
-                displayTitle = "Today"
-                chipTitle = "Today"
-            } else if ymd == yesterdayYMD {
-                displayTitle = "Yesterday"
-                chipTitle = "Yesterday"
-            } else {
-                displayTitle = Self.dayHeaderFormatter.string(from: dayDate)
-                chipTitle = Self.dayChipFormatter.string(from: dayDate)
-            }
-            results.append(
-                BrowserHistoryDaySummary(
-                    dayYMD: ymd,
-                    dayStart: dayDate,
-                    displayTitle: displayTitle,
-                    chipTitle: chipTitle,
-                    count: cnt
+                results.append(
+                    BrowserHistoryDaySummary(
+                        dayYMD: ymd,
+                        dayStart: dayDate,
+                        displayTitle: "Today",
+                        chipTitle: "Today",
+                        count: cnt
+                    )
                 )
-            )
+            } else if ymd == yesterdayYMD {
+                results.append(
+                    BrowserHistoryDaySummary(
+                        dayYMD: ymd,
+                        dayStart: dayDate,
+                        displayTitle: "Yesterday",
+                        chipTitle: "Yesterday",
+                        count: cnt
+                    )
+                )
+            } else {
+                results.append(.calendarDay(dayYMD: ymd, dayStart: dayDate, count: cnt))
+            }
         }
         return results
     }
